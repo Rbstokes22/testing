@@ -51,7 +51,8 @@
             text-align: left;
         }
 
-        #tempCon, #humCon, #soil1Con, #soil2Con, #soil3Con, #soil4Con {
+        #tempCon, #humCon, #soil1Con, #soil2Con, #soil3Con, #soil4Con,
+        #lightCon {
             display: grid;
             grid-template-columns: repeat(4, minmax(75px, 1fr));
             grid-template-rows: auto;
@@ -78,11 +79,12 @@
         <div id="soil2Con" class="item"></div>
         <div id="soil3Con" class="item"></div>
         <div id="soil4Con" class="item"></div>
-        <div class="item">Light</div>
-        <div class="item">RE1</div>
-        <div class="item">RE2</div>
-        <div class="item">RE3</div>
-        <div class="item">RE4</div>
+        <div id="lightCon" class="item"></div>
+        <div id="specCon" class="item"></div>
+        <div id="re1Con" class="item">RE1</div>
+        <div id="re2Con" class="item">RE2</div>
+        <div id="re3Con" class="item">RE3</div>
+        <div id="re4Con" class="item">RE4</div>
     </div> <!-- contains all periph containers-->
     
     <div id="log"></div>
@@ -91,14 +93,23 @@
 
     <script>
 
-        // Still working temp container. Finish up alerts and then organize
-        // into some sort of container to prevent random functions everywhere 
-        // since there is no organization in documet like this due to embedded caps.
-        
-        // TempCon and humCon can be built
-        // using a for loop, changing temp to hum, and that is it. All the soil and
-        // relay will be able to do the same. For light, make light container with
-        // a read only graph representation of the spectral data.
+        // (I THINK I AM DONE WITH THE SOCKET SEND PART.)
+        // Currently working temperature. Skt command to server should be the
+        // set value * 100. So if you are setting a temp for a relay of 10.2C,
+        // it should be sent as 1020 via skt. Ensure that step size is 0.1 when
+        // using celcius as well, this will be a global setting that can be 
+        // changed. When reading, the temp will be float val, but the re/alt vals
+        // will be int * 100, so this must be divided for display purpose. Ensure
+        // that if in faren, that is accounted for as well. The important thing to
+        // remember is that all communication is in celcius and must be converted
+        // when sending and when reading. So if using F at 68 degrees, it should
+        // convert the value to 20 C, which will be multiplied by 100 to be 2000.
+        // When reading this same value, it should read 2000, and convert it back
+        // to 68 for reading. Ensure that the container builder logic has specific
+        // stuff about temp only, since units apply no where else.
+
+        // Work on light, and then add relays. Reminder that the spec data
+        // will be RO, with no interaction, and can probably be a graph.
 
         let eleBuild = function (parentID, readOnly, inputs) {
             this.parentID = parentID;
@@ -132,103 +143,85 @@
             return this;
         }
 
-        let buildTHCon = (name, cmd1, cmd2, cmd3) => {
-            const th = new eleBuild(`${name}Con`,
-            {
-                [name]: new RObuild("div", "0", ["smallItem", "span4"]),
-                [`${name}Re`]: new RObuild("div", "0", ["smallItem", "span4"]),
-                [`${name}Alt`]: new RObuild("div", "0", ["smallItem", "span4"]),
-                [`${name}ConExp`]: new RObuild("button", "Expand", ["span4"])
-            },
-            {
-                [`${name}ReAtt`]: new inputBuild(0, 4, 1, "input", "Plug", true, 
+        let cmdBuild = function (cmd, callBack) {
+            this.cmd = cmd;
+            this.callBack = callBack;
+            return this;
+        }
+
+        let buildCon = (name, re, reSet, altSet) => {
+            let RO = {}, INP = {};
+
+            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]);
+
+            if (re) {
+                RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
+
+                INP[`${name}ReAtt`] = new inputBuild(0, 4, 1, "input", "Plug", true, 
                     ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"],
                     {255: "NONE"}, () => {
                         const reNum = document.getElementById(`${name}ReAttHidden`).value;
                         const disp = (reNum == 4 ) ? RE_OFF : reNum;
-                        socket.send(`${convert(cmd1)}/${reNum}/` +
-                            `${getID(defResp, {[`${name}Re`]: disp}, handleTempHum)}`);
-                    }),
+                        socket.send(`${convert(re.cmd)}/${reNum}/` +
+                            `${getID(defResp, {[`${name}Re`]: disp}, re.callBack)}`);
+                    });
+            }
 
-                [`${name}ReLTGT`]: new inputBuild(0, 2, 1, "input", "Plug Cond",
+            if (reSet) {
+                INP[`${name}ReLTGT`] = new inputBuild(0, 2, 1, "input", "Plug Cond",
                     false, ["smallItem"], `${name}ReCond`, 
-                    ["Less Than", "Gtr Than", "NONE"], null, null),
+                    ["Less Than", "Gtr Than", "NONE"], null, null);
 
-                [`${name}ReSetAdj`] : new inputBuild(-30, 120, 1, "input", `Plug ${name}`, 
+                INP[`${name}ReSetAdj`] = new inputBuild(-30, 120, 1, "input", `Plug ${name}`, 
                     true, ["smallItem"], `${name}ReVal`, null, null, () => {
                         const cond = document.getElementById(`${name}ReLTGTHidden`).value;
-                        const val = document.getElementById(`${name}ReSetAdj`).value;
-                        const cmd = convert(cmd2) + Number(cond);
+                        let val = document.getElementById(`${name}ReSetAdj`).value;
+                        const cmd = convert(reSet.cmd) + Number(cond);
+
+                        if (name === "temp") {
+                            val = isCelcius ? val * 100 : 
+                                (((val - 32) / 1.8).toFixed(2) * 100);
+                        }
+
                         const ID = getID(defResp, 
                             {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
-                            handleTempHum);
+                            reSet.callBack);
                         socket.send(`${cmd}/${val}/${ID}`);
-                    }),
+                    });
+            }
 
-                [`${name}AltLTGT`]: new inputBuild(0, 2, 1, "input", "Alert Cond", 
+            if (altSet) {
+                RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
+
+                INP[`${name}AltLTGT`] = new inputBuild(0, 2, 1, "input", "Alert Cond", 
                     false, ["smallItem"], `${name}AltCond`, 
-                    ["Less Than", "Gtr Than", "NONE"], null, null),
+                    ["Less Than", "Gtr Than", "NONE"], null, null);
 
-                [`${name}AltSetAdj`]: new inputBuild(-30, 120, 1, "input", 
+                INP[`${name}AltSetAdj`] = new inputBuild(-30, 120, 1, "input", 
                     `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
                     null, () => {
                     const cond = document.getElementById(`${name}AltLTGTHidden`).value;
-                    const val = document.getElementById(`${name}AltSetAdj`).value;
-                    const cmd = convert(cmd3) + Number(cond);
+                    let val = document.getElementById(`${name}AltSetAdj`).value;
+                    const cmd = convert(altSet.cmd) + Number(cond);
+
+                    if (name === "temp") {
+                            val = isCelcius ? val * 100 : 
+                                (((val - 32) / 1.8).toFixed(2) * 100);
+                    }
+
                     const ID = getID(defResp, 
                         {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
-                        handleTempHum);
+                        altSet.callBack);
                     socket.send(`${cmd}/${val}/${ID}`);
-                    }),
-
-                [`${name}ConAdj`]: new inputBuild(0, 0, 0, "div", "Adjust", 
-                    false, ["smallItem", "span3"], null, null, null)
+                    });
             }
-            );
-            return th;
+
+            RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
+            INP[`${name}ConAdj`] = new inputBuild(0, 0, 0, "div", "Adjust", 
+            false, ["smallItem", "span3"], null, null, null);
+
+            return new eleBuild(`${name}Con`, RO, INP);
         }
-
-        let buildSoil = (name, cmd) => {
-            const so = new eleBuild(`${name}Con`,
-            {
-                [name]: new RObuild("div", "0", ["smallItem", "span4"]),
-                [`${name}Alt`]: new RObuild("div", "0", ["smallItem", "span4"]),
-                [`${name}ConExp`]: new RObuild("button", "Expand", ["span4"])
-            },
-            {
-                [`${name}AltLTGT`]: new inputBuild(0, 2, 1, "input", "Alert Cond", 
-                    false, ["smallItem"], `${name}AltCond`, 
-                    ["Less Than", "Gtr Than", "NONE"], null, null),
-
-                [`${name}AltSetAdj`]: new inputBuild(5, 4090, 10, "input", 
-                    `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
-                    null, () => {
-                    const cond = document.getElementById(`${name}AltLTGTHidden`).value;
-                    const val = document.getElementById(`${name}AltSetAdj`).value;
-                    const cmd = convert(cmd) + Number(cond);
-                    const ID = getID(defResp, 
-                        {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
-                        handleSoil);
-                    socket.send(`${cmd}/${val}/${ID}`);
-                    }),
-
-                [`${name}ConAdj`]: new inputBuild(0, 0, 0, "div", "Adjust", 
-                    false, ["smallItem", "span3"], null, null, null)
-            }
-            );
-            return so;
-        }
-
-        const tempCon = buildTHCon("temp", "ATTACH_TEMP_RELAY", 
-            "SET_TEMP_RE_LWR_THAN", "SET_TEMP_ALT_LWR_THAN");
-
-        const humCon = buildTHCon("hum", "ATTACH_HUM_RELAY", 
-            "SET_HUM_RE_LWR_THAN", "SET_HUM_ALT_LWR_THAN");
-
-        const soil1Con = buildSoil("soil1", "SET_SOIL1_LWR_THAN");
-        const soil2Con = buildSoil("soil2", "SET_SOIL2_LWR_THAN");
-        const soil3Con = buildSoil("soil3", "SET_SOIL3_LWR_THAN");
-        const soil4Con = buildSoil("soil4", "SET_SOIL4_LWR_THAN");
 
         // All commands from socketHandler.hpp. These must correspond with the
         // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
@@ -244,10 +237,10 @@
             "ATTACH_HUM_RELAY", "SET_HUM_RE_LWR_THAN", "SET_HUM_RE_GTR_THAN", 
             "SET_HUM_RE_COND_NONE", "SET_HUM_ALT_LWR_THAN", "SET_HUM_ALT_GTR_THAN",
             "SET_HUM_ALT_COND_NONE", "CLEAR_TEMPHUM_AVG",
-            "SET_SOIL1_LWR_THAN", "SET_SOIL1_GTR_THAN", "SET_SOIL1_COND_NONE",
-            "SET_SOIL2_LWR_THAN", "SET_SOIL2_GTR_THAN", "SET_SOIL2_COND_NONE",
-            "SET_SOIL3_LWR_THAN", "SET_SOIL3_GTR_THAN", "SET_SOIL3_COND_NONE",
-            "SET_SOIL4_LWR_THAN", "SET_SOIL4_GTR_THAN", "SET_SOIL4_COND_NONE",
+            "SET_SOIL1_ALT_LWR_THAN", "SET_SOIL1_ALT_GTR_THAN", "SET_SOIL1_ALT_COND_NONE",
+            "SET_SOIL2_ALT_LWR_THAN", "SET_SOIL2_ALT_GTR_THAN", "SET_SOIL2_ALT_COND_NONE",
+            "SET_SOIL3_ALT_LWR_THAN", "SET_SOIL3_ALT_GTR_THAN", "SET_SOIL3_ALT_COND_NONE",
+            "SET_SOIL4_ALT_LWR_THAN", "SET_SOIL4_ALT_GTR_THAN", "SET_SOIL4_ALT_COND_NONE",
             "ATTACH_LIGHT_RELAY", "SET_LIGHT_RE_LWR_THAN", "SET_LIGHT_RE_GTR_THAN",
             "SET_LIGHT_RE_COND_NONE", "SET_DARK_VALUE", "CLEAR_LIGHT_AVG",
             "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
@@ -282,7 +275,7 @@
         // Other
         const logDelim = ';';
         const RE_OFF = 255; // Signals relay is not attached.
-        let TEMP = 'F'; // Either F or C.
+        let isCelcius = false;
 
         // Returns the index of the command, this is used with esp32 ssocket
         // command as argument 1.
@@ -430,6 +423,11 @@
             }
         }
 
+        let tempConv = (val, CtoF) => { // Converts 
+            if (CtoF) return (val * 1.8) + 32;
+            return (val - 32) / 1.8;
+        }
+
         let handleTempHum = () => {
             // Uses existing container build IDs and corresponds them with
             // the correct JSON data. Ensure the data matches the correct
@@ -465,9 +463,13 @@
                 const val = document.getElementById(IDs[0]);
                 const re = document.getElementById(IDs[1]);
                 const alt = document.getElementById(IDs[2]);
+                const U = isCelcius ? ' C' : ' F';
 
-                val.innerText = `${name}: ${data[0]} | Avg: ${data[1]} |` +
-                    ` Prev Avg: ${data[2]}`;
+                if (name === "Temp") name += U;
+
+                val.innerText = `${name}: ${data[0].toFixed(1)} |` +
+                    ` Avg: ${data[1].toFixed(1)} |` +
+                    ` Prev Avg: ${data[2].toFixed(1)}`;
                 re.innerText = `Plug: ${relayNum(data[3])} set to` +
                     ` ${reAltCond(data[4], data[5])}`;
                 
@@ -485,6 +487,14 @@
             let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
                 allData.tempRe, allData.tempReCond, allData.tempReVal,
                 allData.tempAltCond, allData.tempAltVal];
+
+            if (!isCelcius) {
+                data[0] = tempConv(data[0], true);
+                data[1] = tempConv(data[1], true);
+                data[2] = tempConv(data[2], true);
+                data[5] = tempConv(data[5], true);
+                data[7] = tempConv(data[7], true);
+            }
 
             proc(tempCon, data, "Temp");
 
@@ -536,6 +546,10 @@
             });
         }
 
+        let handleLight = () => {
+            // photo container as well as 
+        }
+
         // RECEIVED MESSAGE HANDLERS
 
         // Once all data is req in polling, calls this with reply.
@@ -548,6 +562,7 @@
             calibrateTime(data.sysTime); // Ensures sys clock is calib to client
             handleTempHum();
             handleSoil();
+            handleLight();
 
             if (data.newLog === 1) getLog(); // Gets log if avail
         }
@@ -723,7 +738,7 @@
         let reAltCond = (cond, val) => {
             const textConv = ["<", ">", "NONE"];
             if (cond == 2) return textConv[cond];
-            return `${textConv[cond]} ${val}`;
+            return `${textConv[cond]} ${val.toFixed(2)}`;
         }
 
         // Pings the server to see if new firmware is available. If the server 
@@ -816,6 +831,33 @@
             }, FW_CHECK_INTV);
         }
 
+        // !!!! Add special in about temperature, build before going on, the multiplication and F vs C.
+        const tempCon = buildCon("temp", 
+            new cmdBuild("ATTACH_TEMP_RELAY", handleTempHum),
+            new cmdBuild("SET_TEMP_RE_LWR_THAN", handleTempHum),
+            new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum));
+
+        const humCon = buildCon("hum", 
+            new cmdBuild("ATTACH_HUM_RELAY", handleTempHum),
+            new cmdBuild("SET_HUM_RE_LWR_THAN", handleTempHum),
+            new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum));
+
+        const soil1Con = buildCon("soil1", null, null, 
+            new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil));
+
+        const soil2Con = buildCon("soil2", null, null, 
+            new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil));
+
+        const soil3Con = buildCon("soil3", null, null, 
+            new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil));
+
+        const soil4Con = buildCon("soil4", null, null, 
+            new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil));
+
+        const lightCon = buildCon("light", 
+            new cmdBuild("ATTACH_LIGHT_RELAY", handleLight),
+            new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null);
+
         const buildContainers = () => {
             build(tempCon);
             build(humCon);
@@ -823,6 +865,7 @@
             build(soil2Con);
             build(soil3Con);
             build(soil4Con);
+            build(lightCon);
         }
 
         const addListeners = () => {
@@ -832,6 +875,7 @@
         document.getElementById(soil2Con.buttonID).onclick = () => expand(soil2Con);
         document.getElementById(soil3Con.buttonID).onclick = () => expand(soil3Con);
         document.getElementById(soil4Con.buttonID).onclick = () => expand(soil4Con);
+        document.getElementById(lightCon.buttonID).onclick = () => expand(lightCon);
         }
 
         let loadPage = () => {

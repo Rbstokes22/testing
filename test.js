@@ -1,7 +1,7 @@
 "use strict";
 
-let obj = {"soil1": 22, "soil2":33};
+let val = 45;
 
-for (let i = 1; i < 3; i++) {
-    console.log(obj[`soil${i}`]);
-}
+val = false ? val * 100 : (((val - 32) / 1.8).toFixed(2) * 100);
+
+console.log(val);
