@@ -57,6 +57,7 @@
             grid-template-columns: repeat(4, minmax(75px, 1fr));
             grid-template-rows: auto;
             gap: 10px;
+            align-self: start; /* prevent stretching */
         }
 
         .span2 {grid-column: span 2;}
@@ -93,799 +94,855 @@
 
     <script>
 
-        // (I THINK I AM DONE WITH THE SOCKET SEND PART.)
-        // Currently working temperature. Skt command to server should be the
-        // set value * 100. So if you are setting a temp for a relay of 10.2C,
-        // it should be sent as 1020 via skt. Ensure that step size is 0.1 when
-        // using celcius as well, this will be a global setting that can be 
-        // changed. When reading, the temp will be float val, but the re/alt vals
-        // will be int * 100, so this must be divided for display purpose. Ensure
-        // that if in faren, that is accounted for as well. The important thing to
-        // remember is that all communication is in celcius and must be converted
-        // when sending and when reading. So if using F at 68 degrees, it should
-        // convert the value to 20 C, which will be multiplied by 100 to be 2000.
-        // When reading this same value, it should read 2000, and convert it back
-        // to 68 for reading. Ensure that the container builder logic has specific
-        // stuff about temp only, since units apply no where else.
+    // Everything seems to be working fine as far as the temperature is communicated.
+    // Next establish a new min and max constructor or something, instead of rolling
+    // it into the input. Use this when building buildCon. Also look at potentially
+    // changing the min and max values based on realistic min and max. F can extend
+    // from -30 to 120, and maybe C can extend from -30 to 50, to increase resolution
+    // using the 0.5 step.
 
-        // Work on light, and then add relays. Reminder that the spec data
-        // will be RO, with no interaction, and can probably be a graph.
+    // Network and Sockets
+    const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
+    const URLdata = re.exec(window.location.href);
+    const URLprotocol = URLdata[1]; // http or https
+    const URLbody = URLdata[2]; // main url
+    const OTAURL = `${URLprotocol}://${URLbody}/OTACheck`; 
+    const logURL = `${URLprotocol}://${URLbody}/getLog`;
+    const webSktURL = `ws://${URLbody}/ws`;
 
-        let eleBuild = function (parentID, readOnly, inputs) {
-            this.parentID = parentID;
-            this.readOnly = readOnly;
-            this.inputs = inputs;
-            this.buttonID = `${parentID}Exp`; // Use this naming consistently
-            return this;
-        }
+    // Elements
+    const OTAdisp = document.getElementById("otaUpd");
 
-        let RObuild = function (eleType, text, classes) {
-            this.eleType = eleType;
-            this.text = text;
-            this.classes = classes;
-            return this;
-        }
+    // Intervals (millis)
+    const POLL_INTV = 1000; // Poll interval to run GET_ALL.
+    const CHK_OTA_INTV = 86400000; // OTA check run.
+    const CLEAR_REQ_INTV = 60000; // Clear exp skt req if non-response.
+    const FW_CHECK_INTV = 12 * 60 * 60 * 1000; // Check for new firmware.
 
-        let inputBuild = function (min, max, step, eleType, label, incBut, 
-            classes, dataPtr, rangeMap, specMap, butFunc) {
+    // Flags 
+    let Flags = {SKTconn:false, openLog:true};
 
-            this.min = min;
-            this.max = max;
-            this.step = step;
-            this.eleType = eleType;
-            this.label = label;
-            this.incBut = incBut; // Include button
-            this.classes = classes;
-            this.dataPtr = dataPtr;
-            this.rangeMap = rangeMap;
-            this.specMap = specMap;
-            this.butFunc = butFunc;
-            return this;
-        }
+    // Other
+    const logDelim = ';';
+    const RE_OFF = 255; // Signals relay is not attached.
+    let isCelcius = false;
 
-        let cmdBuild = function (cmd, callBack) {
-            this.cmd = cmd;
-            this.callBack = callBack;
-            return this;
-        }
+    // All commands from socketHandler.hpp. These must correspond with the
+    // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
+    const CMDS = [null, "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD",
+        "RELAY_1", "RELAY_2", "RELAY_3", "RELAY_4",
+        "RELAY_1_TIMER_ON", "RELAY_1_TIMER_OFF", 
+        "RELAY_2_TIMER_ON", "RELAY_2_TIMER_OFF",
+        "RELAY_3_TIMER_ON", "RELAY_3_TIMER_OFF",
+        "RELAY_4_TIMER_ON", "RELAY_4_TIMER_OFF",
+        "ATTACH_TEMP_RELAY", "SET_TEMP_RE_LWR_THAN", "SET_TEMP_RE_GTR_THAN",
+        "SET_TEMP_RE_COND_NONE", "SET_TEMP_ALT_LWR_THAN", "SET_TEMP_ALT_GTR_THAN",
+        "SET_TEMP_ALT_COND_NONE",
+        "ATTACH_HUM_RELAY", "SET_HUM_RE_LWR_THAN", "SET_HUM_RE_GTR_THAN", 
+        "SET_HUM_RE_COND_NONE", "SET_HUM_ALT_LWR_THAN", "SET_HUM_ALT_GTR_THAN",
+        "SET_HUM_ALT_COND_NONE", "CLEAR_TEMPHUM_AVG",
+        "SET_SOIL1_ALT_LWR_THAN", "SET_SOIL1_ALT_GTR_THAN", "SET_SOIL1_ALT_COND_NONE",
+        "SET_SOIL2_ALT_LWR_THAN", "SET_SOIL2_ALT_GTR_THAN", "SET_SOIL2_ALT_COND_NONE",
+        "SET_SOIL3_ALT_LWR_THAN", "SET_SOIL3_ALT_GTR_THAN", "SET_SOIL3_ALT_COND_NONE",
+        "SET_SOIL4_ALT_LWR_THAN", "SET_SOIL4_ALT_GTR_THAN", "SET_SOIL4_ALT_COND_NONE",
+        "ATTACH_LIGHT_RELAY", "SET_LIGHT_RE_LWR_THAN", "SET_LIGHT_RE_GTR_THAN",
+        "SET_LIGHT_RE_COND_NONE", "SET_DARK_VALUE", "CLEAR_LIGHT_AVG",
+        "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
 
-        let buildCon = (name, re, reSet, altSet) => {
-            let RO = {}, INP = {};
+    // Declare all vars here, to save space. idNum is used to keep track of
+    // socket commands, allData contains all sensor data, and log contains
+    // all log entries.
+    let socket, poll, clearReqID, requestIDs = {}, idNum = 0,
+        allData = {}, log = [], trends = {}, Expansions = {};
 
-            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]);
+    // element build. Requires the parent ID, and both the read only and 
+    // input objects. Returns constructed object.
+    let eleBuild = function(parentID, readOnly, inputs) {
+        this.parentID = parentID; // Used to link it to parent container.
+        this.readOnly = readOnly; // Sensor and setting data.
+        this.inputs = inputs; // Interactive.
+        this.buttonID = `${parentID}Exp`; // Expansion button.
+        return this;
+    }
 
-            if (re) {
-                RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
+    // Read only build. Requires the element type, its text, and and array
+    // of all classes pertaining to it. Returns constructed object.
+    let RObuild = function(eleType, text, classes) {
+        this.eleType = eleType; // element type. i.e. "div".
+        this.text = text; // Default input text.
+        this.classes = classes; // array of classes.
+        return this;
+    }
 
-                INP[`${name}ReAtt`] = new inputBuild(0, 4, 1, "input", "Plug", true, 
-                    ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"],
-                    {255: "NONE"}, () => {
-                        const reNum = document.getElementById(`${name}ReAttHidden`).value;
-                        const disp = (reNum == 4 ) ? RE_OFF : reNum;
-                        socket.send(`${convert(re.cmd)}/${reNum}/` +
-                            `${getID(defResp, {[`${name}Re`]: disp}, re.callBack)}`);
-                    });
-            }
+    // Input build. Builds the interactive portion to make adjustments to
+    // system settings. Pass null if non-exist. Returns constructed object.
+    let inputBuild = function(min, max, step, eleType, label, incBut, 
+        classes, dataPtr, rangeMap, specMap, butFunc) {
 
-            if (reSet) {
-                INP[`${name}ReLTGT`] = new inputBuild(0, 2, 1, "input", "Plug Cond",
-                    false, ["smallItem"], `${name}ReCond`, 
-                    ["Less Than", "Gtr Than", "NONE"], null, null);
+        this.min = min; // range min
+        this.max = max; // range max
+        this.step = step; // step size of range bar.
+        this.eleType = eleType; // element type. i.e. "input".
+        this.label = label; // input box label.
+        this.incBut = incBut; // bool. Include button.
+        this.classes = classes; // array of classes.
+        this.dataPtr = dataPtr; // pointer/key of allData JSON.
 
-                INP[`${name}ReSetAdj`] = new inputBuild(-30, 120, 1, "input", `Plug ${name}`, 
-                    true, ["smallItem"], `${name}ReVal`, null, null, () => {
-                        const cond = document.getElementById(`${name}ReLTGTHidden`).value;
-                        let val = document.getElementById(`${name}ReSetAdj`).value;
-                        const cmd = convert(reSet.cmd) + Number(cond);
+        // Maps. The range map is an array that has display values with an
+        // index that corresponds with an actual numberical value. Special
+        // maps are used for values outside of the typical range and are 
+        // passed as objects.
+        this.rangeMap = rangeMap; 
+        this.specMap = specMap;
+        this.butFunc = butFunc; // function applied to button onclick.
+        return this;
+    }
 
-                        if (name === "temp") {
-                            val = isCelcius ? val * 100 : 
-                                (((val - 32) / 1.8).toFixed(2) * 100);
-                        }
+    // Command build. Pass the command string, and the callback function. 
+    // Returns constructed object that will be called when submit is sel.
+    let cmdBuild = function(cmd, callBack) {
+        this.cmd = cmd;
+        this.callBack = callBack;
+        return this;
+    }
 
-                        const ID = getID(defResp, 
-                            {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
-                            reSet.callBack);
-                        socket.send(`${cmd}/${val}/${ID}`);
-                    });
-            }
+    // Build container. This is a sort of constructor that takes the name,
+    // relay command, and both the relay and alert setting commands. Pass
+    // null if non-exist. Can be used for the majority of containers since
+    // the naming convention is cookie-cutter. Builds and returns container.
+    let buildCon = (name, re, reSet, altSet) => {
+        
+        // ATTENTION: Read only will consist of data reported by ESP. It
+        // will show for example, temperature, relay, and alert settings.
+        // Input will allow those settings to be changed by signalling srvr.
 
-            if (altSet) {
-                RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        // Change temperature step size ONLY depending on units.
+        const step = (name === "temp" && isCelcius) ? 0.5 : 1;
+        let RO = {}, INP = {}; // Read only and Input.
 
-                INP[`${name}AltLTGT`] = new inputBuild(0, 2, 1, "input", "Alert Cond", 
-                    false, ["smallItem"], `${name}AltCond`, 
-                    ["Less Than", "Gtr Than", "NONE"], null, null);
+        RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); // Pri
 
-                INP[`${name}AltSetAdj`] = new inputBuild(-30, 120, 1, "input", 
-                    `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
-                    null, () => {
-                    const cond = document.getElementById(`${name}AltLTGTHidden`).value;
-                    let val = document.getElementById(`${name}AltSetAdj`).value;
-                    const cmd = convert(altSet.cmd) + Number(cond);
+        if (re) { // Relay selection. If exists, builds boxes.
+            RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-                    if (name === "temp") {
-                            val = isCelcius ? val * 100 : 
-                                (((val - 32) / 1.8).toFixed(2) * 100);
-                    }
+            INP[`${name}ReAtt`] = new inputBuild(0, 4, 1, "input", "Plug", true, 
+                ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"], 
+                {255: "NONE"}, () => {
+                    
+                const cmd = convert(re.cmd); 
+                const reNum = document .getElementById(`${name}ReAttHidden`)
+                    .value; // Relay number
 
-                    const ID = getID(defResp, 
-                        {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
-                        altSet.callBack);
-                    socket.send(`${cmd}/${val}/${ID}`);
-                    });
-            }
-
-            RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
-            INP[`${name}ConAdj`] = new inputBuild(0, 0, 0, "div", "Adjust", 
-            false, ["smallItem", "span3"], null, null, null);
-
-            return new eleBuild(`${name}Con`, RO, INP);
-        }
-
-        // All commands from socketHandler.hpp. These must correspond with the
-        // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
-        const CMDS = [null, "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD",
-            "RELAY_1", "RELAY_2", "RELAY_3", "RELAY_4",
-            "RELAY_1_TIMER_ON", "RELAY_1_TIMER_OFF", 
-            "RELAY_2_TIMER_ON", "RELAY_2_TIMER_OFF",
-            "RELAY_3_TIMER_ON", "RELAY_3_TIMER_OFF",
-            "RELAY_4_TIMER_ON", "RELAY_4_TIMER_OFF",
-            "ATTACH_TEMP_RELAY", "SET_TEMP_RE_LWR_THAN", "SET_TEMP_RE_GTR_THAN",
-            "SET_TEMP_RE_COND_NONE", "SET_TEMP_ALT_LWR_THAN", "SET_TEMP_ALT_GTR_THAN",
-            "SET_TEMP_ALT_COND_NONE",
-            "ATTACH_HUM_RELAY", "SET_HUM_RE_LWR_THAN", "SET_HUM_RE_GTR_THAN", 
-            "SET_HUM_RE_COND_NONE", "SET_HUM_ALT_LWR_THAN", "SET_HUM_ALT_GTR_THAN",
-            "SET_HUM_ALT_COND_NONE", "CLEAR_TEMPHUM_AVG",
-            "SET_SOIL1_ALT_LWR_THAN", "SET_SOIL1_ALT_GTR_THAN", "SET_SOIL1_ALT_COND_NONE",
-            "SET_SOIL2_ALT_LWR_THAN", "SET_SOIL2_ALT_GTR_THAN", "SET_SOIL2_ALT_COND_NONE",
-            "SET_SOIL3_ALT_LWR_THAN", "SET_SOIL3_ALT_GTR_THAN", "SET_SOIL3_ALT_COND_NONE",
-            "SET_SOIL4_ALT_LWR_THAN", "SET_SOIL4_ALT_GTR_THAN", "SET_SOIL4_ALT_COND_NONE",
-            "ATTACH_LIGHT_RELAY", "SET_LIGHT_RE_LWR_THAN", "SET_LIGHT_RE_GTR_THAN",
-            "SET_LIGHT_RE_COND_NONE", "SET_DARK_VALUE", "CLEAR_LIGHT_AVG",
-            "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
-
-        // Declare all vars here, to save space. idNum is used to keep track of
-        // socket commands, allData contains all sensor data, and log contains
-        // all log entries.
-        let socket, poll, clearReqID, requestIDs = {}, idNum = 0,
-            allData = {}, log = [], trends = {}, Expansions = {};
-
-        // Network and Sockets
-        const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
-        const URLdata = re.exec(window.location.href);
-        const URLprotocol = URLdata[1]; // http or https
-        const URLbody = URLdata[2]; // main url
-        const OTAURL = `${URLprotocol}://${URLbody}/OTACheck`; 
-        const logURL = `${URLprotocol}://${URLbody}/getLog`;
-        const webSktURL = `ws://${URLbody}/ws`;
-    
-        // Elements
-        const OTAdisp = document.getElementById("otaUpd");
-
-        // Intervals (millis)
-        const POLL_INTV = 1000; // Poll interval to run GET_ALL.
-        const CHK_OTA_INTV = 86400000; // OTA check run.
-        const CLEAR_REQ_INTV = 60000; // Clear exp skt req if non-response.
-        const FW_CHECK_INTV = 12 * 60 * 60 * 1000; // Check for new firmware.
-
-        // Flags 
-        let Flags = {SKTconn:false, openLog:true};
-
-        // Other
-        const logDelim = ';';
-        const RE_OFF = 255; // Signals relay is not attached.
-        let isCelcius = false;
-
-        // Returns the index of the command, this is used with esp32 ssocket
-        // command as argument 1.
-        const convert = (CMD) => CMDS.indexOf(CMD);
-
-        // Requires callback function, html id, and value if successful. Sets
-        // the key to the ID, and a 3 element array to the function, html ele
-        // id, and value to change if successful. This allows a successful
-        // sys change to update between polling.
-        const getID = (func = null, KVs = null, func2 = null) => {
-            const id = idNum++;
-            requestIDs[id] = [func, KVs, func2]; 
-            return id;
-        }
-
-        // No params. Returns true if socket is open, false if not.
-        const isSocketOpen = () => (Flags.SKTconn && WebSocket.OPEN);
-
-        // SOCKETS. Event handlers.
-        const initWebSocket = () => {
-            console.log("Init websocket");
-            socket = new WebSocket(webSktURL); // Open new socket.
-            socket.onopen = socketOpen; // Set the event handler functions.
-            socket.onclose = socketClose;
-            socket.onmessage = socketMsg;
-        }
-
-        const socketOpen = () => { // Open socket handler
-            console.log("Connected to server");
-            Flags.SKTconn = true;
-            poll = setInterval(pollServer, POLL_INTV); // Set intervals
-            clearReqID = setInterval(clearOldRequests, 10000);
-        }
-
-        const socketClose = () => { // Close socket handler
-            console.log("Disconnected from server");
-            Flags.SKTconn = false;
-            clearInterval(poll); // Clear intervals.
-            clearInterval(clearReqID);
-            setTimeout(initWebSocket, 2000); // Attempt reconnect.
-        }
-
-        // Messages from server will be in JSON format, parsed, and sent to the
-        // assigned function to handle that response.
-        const socketMsg = (event) => handleResponse(JSON.parse(event.data)); 
-
-        // Receives the parsed JSON response from the socket message. Gets its
-        // function from the ID, runs the function passing the response, and
-        // deletes the ID signifying the request is complete.
-        const handleResponse = (response) => {
-            const func = requestIDs[response.id][0]; // callback function
-      
-            // Check if default response. If so, will send the html element
-            // ID and the value to set it to iff successful. This will handle
-            // most socket responses.
-            if (func === defResp && response.status === 1) { // 1 = success
-                func(requestIDs[response.id][1], requestIDs[response.id][2]);
-            } else if (func != null) { 
-                func(response); // Used moreso for trends and get all.
-            }
-
-            delete requestIDs[response.id]; // Delete corresponding ID.
-        }
-    
-        // Polls the server at a set interval requesting all data.
-        const pollServer = () => {
-            if (isSocketOpen()) {
-                socket.send(`${convert("GET_ALL")}/${0x00}/${getID(getAll)}`);
-            }
-        }
-
-        // Clears requests that will not be satisfied by the server to 
-        // prevent the from accumulating to non responses.
-        const clearOldRequests = () => {
-            Object.keys(requestIDs).forEach(id => {
-                if (Number(id) < (idNum - 3)) delete requestIDs[id];
+                // Updates the diplay using ESP32 protocol.
+                const disp = (reNum == 4 ) ? RE_OFF : reNum;
+                const ID = getID(defResp, {[`${name}Re`]: disp}, re.callBack); 
+                socket.send(`${cmd}/${reNum}/${ID}`);
             });
         }
 
-        // Gets the log, separates it into a non-delimited array, to be used
-        // for diplay.
-        let getLog = () => { // HTTP call
-            const button = document.getElementById("logBut");
-            fetch(logURL)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error status: ${response.status}`);
+        if (reSet) { // Relay setting condition and value.
+            INP[`${name}ReLTGT`] = new inputBuild(0, 2, 1, "input", "Plug Cond", 
+                false, ["smallItem"], `${name}ReCond`, 
+                ["Less Than", "Gtr Than", "NONE"], null, null);
+
+            INP[`${name}ReSetAdj`] = new inputBuild(-30, 120, step, "input", 
+                `Plug ${name}`, true, ["smallItem"], `${name}ReVal`, null, 
+                null, () => {
+                
+                const cond = document.getElementById(`${name}ReLTGTHidden`)
+                    .value; // Relay condition
+
+                const cmd = convert(reSet.cmd) + Number(cond);
+                let val = document.getElementById(`${name}ReSetAdj`).value;
+
+                // If temperature, ensures value is in celcius, and mult
+                // float val by 100 IAW ESP req.
+                if (name === "temp") { 
+                    val = isCelcius ? val * 100 : 
+                        (((val - 32) / 1.8).toFixed(2) * 100);
                 }
-                return response.text(); // If no err, proceed.
-            })
-            .then(text => {
-                if (text.length <= 0) throw new Error("No Log Data");
-                log = text.split(logDelim); // Split by delim into array.
-                button.style.backgroundColor = "green"; // Shows new log
 
-                // Is a receipt only, Allows server to remove flag.
-                if (!isSocketOpen()) return; // Block
-                socket.send(`${convert("NEW_LOG_RCVD")}/${0x00}/${getID()}`); 
-            })
-            .catch(err => console.log(err));
+                const ID = getID(defResp, 
+                    {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
+                    reSet.callBack);
+                socket.send(`${cmd}/${val}/${ID}`);
+            });
         }
 
-        const openLog = () => { // Opens the log for display.
-            const button = document.getElementById("logBut");
-            const logDisp = document.getElementById("log");
-   
-            if (Flags.openLog) {
-                let html = "";
-                log.forEach(entry => html += `${entry}<br>`);
-                logDisp.innerHTML = html;
-                button.innerText = "Close log";
-                Flags.openLog = false;
+        if (altSet) { // Alert setting condition and value.
+            RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-            } else if (!Flags.openLog) {
-                logDisp.innerText = ""; // Clear out.
-                button.style.backgroundColor = "black";
-                button.innerText = "Open log";
-                Flags.openLog = true;
+            INP[`${name}AltLTGT`] = new inputBuild(0, 2, 1, "input", 
+                "Alert Cond", false, ["smallItem"], `${name}AltCond`, 
+                ["Less Than", "Gtr Than", "NONE"], null, null);
+
+            INP[`${name}AltSetAdj`] = new inputBuild(-30, 120, step, "input", 
+                `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
+                null, () => {
+
+                const cond = document.getElementById(`${name}AltLTGTHidden`)
+                    .value; // Alert condition.
+
+                let val = document.getElementById(`${name}AltSetAdj`).value;
+                const cmd = convert(altSet.cmd) + Number(cond);
+
+                // If temperature, ensures value is in celcius, and mult
+                // float val by 100 IAW ESP req.
+                if (name === "temp") { // Adjust based on requirements
+                        val = isCelcius ? val * 100 : 
+                            (((val - 32) / 1.8).toFixed(2) * 100);
+                }
+
+                const ID = getID(defResp, 
+                    {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
+                    altSet.callBack);
+                socket.send(`${cmd}/${val}/${ID}`);
+                });
+        }
+
+        // Once all selection have been built, build expan button and
+        // adjustment bar.
+        RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
+        INP[`${name}ConAdj`] = new inputBuild(0, 0, 0, "div", "Adjust", 
+            false, ["smallItem", "span3"], null, null, null);
+
+        return new eleBuild(`${name}Con`, RO, INP); // Return object.
+    }
+
+    // After the container has been constructed using buildCon, it is passed 
+    // here which will build the read only portion of the container.
+    let buildRO = (container) => {
+
+        // Iterates each read only key, creates and builds elements.
+        Object.keys(container.readOnly).forEach(eleID => {
+            const data = container.readOnly[eleID];
+            const e = document.createElement(data.eleType);
+            e.id = eleID;
+            e.innerText = data.text
+            data.classes.forEach(cls => { // add classes to list.
+                if (cls == null || cls == undefined) return;
+                e.classList.add(cls);
+            });
+            document.getElementById(container.parentID).appendChild(e);
+        });
+    }
+
+    // After the container read only portion has been built, the expand button
+    // will call this function, passing the container. This will build the 
+    // remaining portion of the container which is the interactive input part.
+    let expand = (container) => {
+        const button = document.getElementById(container.buttonID);
+        const inp = container.inputs;
+        const ID = container.parentID;
+        let idx = 0; // USed for expansion elements.
+
+        let append = (ele) => {
+            document.getElementById(ID).appendChild(ele);
+            Expansions[ID][idx++] = ele.id;
+        }
+
+        if (button.innerText === "Expand") {
+            Expansions[ID] = []; // Clear before use.
+            let idx = 0; // Used for expansion elements.
+
+            Object.keys(inp).forEach(ele => {
+                const data = inp[ele];
+                const label = buildLabel(ele, data);
+                const e = buildInput(ele, data, container.parentID);
+                const but = data.incBut ? buildButton(ele, data) : null;
+
+                // Build hidden carrier input if range map attached. This 
+                // allows separation of real values and display values.
+                const hidden = data.rangeMap ? buildHidden(ele, data) : null;
+    
+                // Append all newly created elements to the parent container.
+                append(label);
+                append(e);
+                if (hidden != null) append(hidden);
+                if (but != null) append(but); // append last.
+        
+                data.classes.forEach(cls => { // Add classes
+                    if (cls == null || cls == undefined) return; // none
+                    e.classList.add(cls);
+                });
+
+                // Only set listeners if element type is input.
+                if (data.eleType === "input") addListen(e, hidden, ID, data);
+            });
+
+            button.innerText = "Contract"; // acts as a toggle and display.
+
+        } else if (button.innerText === "Contract") { // Remove expanded eles.
+            Expansions[ID].forEach(id => document.getElementById(id).remove());
+            button.innerText = "Expand";
+        }
+    }
+
+    // When building the interactive part of the container, builds the labels
+    // for each input using the parent ID, and the input object data.
+    let buildLabel = (parent, data) => {
+        const label = document.createElement("div");
+        if (data.label === "Adjust") {
+            label.style.gridColumn = "1"; // Span 1 if adj.
+        } else {
+            label.style.gridColumn = "1 / 3"; // Span 2 if regular inp
+        }
+        label.innerText = data.label; 
+        label.style.alignContent = "center"; // Keep inline with input boxes.
+        label.id = `${parent}Lab`;
+        return label;
+    }
+
+    // Input will always be displayed. If a range map is sent, this will turn 
+    // the input into display only, and a hidden input will be build and 
+    // populated with a numerical value. If no map is sent, serves as both an
+    // input and display.
+    let buildInput = (parent, data, contID) => {
+        const ele = document.createElement(data.eleType);
+
+        ele.id = parent;
+
+        if (!data.dataPtr) { // No pointer/key to JSON key/val.
+            ele.value = 0;
+            return ele;
+        }
+
+        if (data.rangeMap) { // Checks for rangeMap. If true...
+            ele.readOnly = true; // Forces use of adjustment bar.
+
+            // Checks for a special map and that the range map value does not
+            // eixst. If true, sets to special map, if false, uses range map/
+            if (data.specMap && !data.rangeMap[allData[data.dataPtr]]) {
+                ele.value = data.specMap[allData[data.dataPtr]];
+            } else {
+                ele.value = data.rangeMap[allData[data.dataPtr]];
+            }
+        } else {
+            ele.readOnly = false; // Allows use of input or adj bar.
+
+            if (contID === "tempCon") { // ESP conv rules for temp only.
+                ele.value = isCelcius ? allData[data.dataPtr] / 100 :
+                    ((allData[data.dataPtr] / 100) * 1.8) + 32;
+            } else {
+                ele.value = allData[data.dataPtr];
             }
         }
 
-        // Qty 1 - 12. Default to 6. Gets the previous n hours of temp/hum or
-        // light trends.
-        let getTrends = (qty = 6) => {
+        return ele;
+    }
+
+    // builds submit button for input items.
+    let buildButton = (parent, data) => {
+        const button = document.createElement("button");
+        button.id = `${parent}But`;
+        button.innerText = "Submit";
+        button.onclick = () => data.butFunc();
+        return button;
+    }
+
+    let buildHidden = (parent, data) => { // This will contain real values
+        const actual = document.createElement(data.eleType);
+        actual.type = "hidden";
+        actual.id = `${parent}Hidden`;
+        actual.value = allData[data.dataPtr]; 
+        return actual;
+    }
+
+    let addListen = (disp, actual, ID, data) => {
+
+        disp.addEventListener("focus", () => {
+            const adj = document.getElementById(`${ID}Adj`);
+            
+            adj.innerHTML = `<input id="${ID}AdjBar" 
+                type="range" min="${data.min}" max="${data.max}" 
+                step="${data.step}">`;
+
+            const AdjBar = document.getElementById(`${ID}AdjBar`);
+
+            AdjBar.addEventListener("input", () => {
+                if (actual) (actual.value = AdjBar.value);
+                
+                if (data.rangeMap != null) {
+                    disp.value = data.rangeMap[AdjBar.value];
+                } else {
+                    disp.value = AdjBar.value;
+                }
+            });
+
+            AdjBar.style.width = "225px"; // 3/4 of the grid width.
+
+            if (data.rangeMap != null) { // Set upon expansion.
+                AdjBar.value = data.rangeMap.indexOf(disp.value);
+            } else {
+                AdjBar.value = disp.value; 
+            }
+
+            disp.classList.add("selected");
+        });
+
+        disp.addEventListener("blur", () => {
+            disp.classList.remove("selected");
+        });
+    }
+
+    // Returns the index of the command, this is used with esp32 ssocket
+    // command as argument 1.
+    const convert = (CMD) => CMDS.indexOf(CMD);
+
+    // Requires callback function for a successful update, the key/value
+    // pairs with the key being the allData JSON key, and its value to
+    // update to, and the second callback function which will run after
+    // the JSON has been updated, to update the display. Returns the ID.
+    const getID = (callback1 = null, KVs = null, callback2 = null) => {
+        const id = idNum++;
+        requestIDs[id] = [callback1, KVs, callback2]; 
+        return id;
+    }
+
+    // No params. Returns true if socket is open, false if not.
+    const isSocketOpen = () => (Flags.SKTconn && WebSocket.OPEN);
+
+    // SOCKETS. Event handlers.
+    const initWebSocket = () => {
+        console.log("Init websocket");
+        socket = new WebSocket(webSktURL); // Open new socket.
+        socket.onopen = socketOpen; // Set the event handler functions.
+        socket.onclose = socketClose;
+        socket.onmessage = socketMsg;
+    }
+
+    const socketOpen = () => { // Open socket handler
+        console.log("Connected to server");
+        Flags.SKTconn = true;
+        poll = setInterval(pollServer, POLL_INTV); // Set intervals
+        clearReqID = setInterval(clearOldRequests, 10000);
+    }
+
+    const socketClose = () => { // Close socket handler
+        console.log("Disconnected from server");
+        Flags.SKTconn = false;
+        clearInterval(poll); // Clear intervals.
+        clearInterval(clearReqID);
+        setTimeout(initWebSocket, 2000); // Attempt reconnect.
+    }
+
+    // Messages from server will be in JSON format, parsed, and sent to the
+    // assigned function to handle that response.
+    const socketMsg = (event) => handleResponse(JSON.parse(event.data)); 
+
+    // Receives the parsed JSON response from the socket message. Gets its
+    // function from the ID, runs the function passing the response, and
+    // deletes the ID signifying the request is complete.
+    const handleResponse = (response) => {
+        const func = requestIDs[response.id][0]; // callback function
+    
+        // Check if default response. If so, will send the html element
+        // ID and the value to set it to iff successful. This will handle
+        // most socket responses.
+        if (func === defResp && response.status === 1) { // 1 = success
+            func(requestIDs[response.id][1], requestIDs[response.id][2]);
+        } else if (func != null) { 
+            func(response); // Used moreso for trends and get all.
+        }
+
+        delete requestIDs[response.id]; // Delete corresponding ID.
+    }
+
+    // Polls the server at a set interval requesting all data.
+    const pollServer = () => {
+        if (isSocketOpen()) {
+            socket.send(`${convert("GET_ALL")}/${0x00}/${getID(getAll)}`);
+        }
+    }
+
+    // Clears requests that will not be satisfied by the server to 
+    // prevent the from accumulating to non responses.
+    const clearOldRequests = () => {
+        Object.keys(requestIDs).forEach(id => {
+            if (Number(id) < (idNum - 3)) delete requestIDs[id];
+        });
+    }
+
+    // Gets the log, separates it into a non-delimited array, to be used
+    // for diplay.
+    let getLog = () => { // HTTP call
+        const button = document.getElementById("logBut");
+        fetch(logURL)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error status: ${response.status}`);
+            }
+            return response.text(); // If no err, proceed.
+        })
+        .then(text => {
+            if (text.length <= 0) throw new Error("No Log Data");
+            log = text.split(logDelim); // Split by delim into array.
+            button.style.backgroundColor = "green"; // Shows new log
+
+            // Is a receipt only, Allows server to remove flag.
             if (!isSocketOpen()) return; // Block
-            socket.send(`${convert("GET_TRENDS")}/${0x00}/${getID(setTrends)}`); 
+            socket.send(`${convert("NEW_LOG_RCVD")}/${0x00}/${getID()}`); 
+        })
+        .catch(err => console.log(err));
+    }
+
+    const openLog = () => { // Opens the log for display.
+        const button = document.getElementById("logBut");
+        const logDisp = document.getElementById("log");
+
+        if (Flags.openLog) {
+            let html = "";
+            log.forEach(entry => html += `${entry}<br>`);
+            logDisp.innerHTML = html;
+            button.innerText = "Close log";
+            Flags.openLog = false;
+
+        } else if (!Flags.openLog) {
+            logDisp.innerText = ""; // Clear out.
+            button.style.backgroundColor = "black";
+            button.innerText = "Open log";
+            Flags.openLog = true;
         }
+    }
 
-        // Pass the current time in seconds from the ESP. If different than
-        // real time, sends socket cmd to calibrate to real time.
-        let calibrateTime = (seconds) => { // calibrates time if different
-            const time = new Date();
-            const padding = 2; // This prevents constant cal w/ rounding err.
-            let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
-                + time.getSeconds();
+    // Qty 1 - 12. Default to 6. Gets the previous n hours of temp/hum or
+    // light trends.
+    let getTrends = (qty = 6) => {
+        if (!isSocketOpen()) return; // Block
+        socket.send(`${convert("GET_TRENDS")}/${0x00}/${getID(setTrends)}`); 
+    }
 
-            // Compute time delta between machine and client.
-            const delta = ((seconds - secPastMid)**2)**(1/2);
-   
-            // calibrate clock if esp time out of range. Ignore midnight switch.
-            if (delta >= padding && secPastMid != 0) { 
-                if (!isSocketOpen()) return; // Block
-                socket.send(`${convert("CALIBRATE_TIME")}/
-                ${secPastMid}/${getID(defResp)}`);
-            }
+    // Pass the current time in seconds from the ESP. If different than
+    // real time, sends socket cmd to calibrate to real time.
+    let calibrateTime = (seconds) => { // calibrates time if different
+        const time = new Date();
+        const padding = 2; // This prevents constant cal w/ rounding err.
+        let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
+            + time.getSeconds();
+
+        // Compute time delta between machine and client.
+        const delta = ((seconds - secPastMid)**2)**(1/2);
+
+        // calibrate clock if esp time out of range. Ignore midnight switch.
+        if (delta >= padding && secPastMid != 0) { 
+            if (!isSocketOpen()) return; // Block
+            socket.send(`${convert("CALIBRATE_TIME")}/
+            ${secPastMid}/${getID(defResp)}`);
         }
+    }
 
-        let tempConv = (val, CtoF) => { // Converts 
-            if (CtoF) return (val * 1.8) + 32;
-            return (val - 32) / 1.8;
-        }
+    let handleTempHum = () => {
+        
+        let checkBounds = (condition, data, eleReID, eleAltID) => {
+            
+            if (condition) { // Opening conditon for relay only. Ensure set.
+                if (((data[4] == 0) && (data[0] < data[5])) ||
+                    ((data[4] == 1) && (data[0] > data[5]))) {
 
-        let handleTempHum = () => {
-            // Uses existing container build IDs and corresponds them with
-            // the correct JSON data. Ensure the data matches the correct
-            // container IDs.
-
-            let checkBounds = (condition, data, eleReID, eleAltID) => {
-               
-                if (condition) { // Opening conditon for relay only. Ensure set.
-                    if (((data[4] == 0) && (data[0] < data[5])) ||
-                        ((data[4] == 1) && (data[0] > data[5]))) {
-
-                        eleReID.classList.add("boundBust");
-                    } else {
-                        eleReID.classList.remove("boundBust");
-                    }
+                    eleReID.classList.add("boundBust");
                 } else {
                     eleReID.classList.remove("boundBust");
                 }
-
-                if (((data[6] == 0) && (data[0] < data[7])) ||
-                    ((data[6] == 1) && (data[0] > data[7]))) {
-
-                        eleAltID.classList.add("boundBust");
-                    } else {
-                        eleAltID.classList.remove("boundBust");
-                    }
+            } else {
+                eleReID.classList.remove("boundBust");
             }
 
-            let proc = (cont, data, name) => {
-                
-                const parent = document.getElementById(cont.parentID);
-                const IDs = Object.keys(cont.readOnly);
-                const val = document.getElementById(IDs[0]);
-                const re = document.getElementById(IDs[1]);
-                const alt = document.getElementById(IDs[2]);
-                const U = isCelcius ? ' C' : ' F';
-
-                if (name === "Temp") name += U;
-
-                val.innerText = `${name}: ${data[0].toFixed(1)} |` +
-                    ` Avg: ${data[1].toFixed(1)} |` +
-                    ` Prev Avg: ${data[2].toFixed(1)}`;
-                re.innerText = `Plug: ${relayNum(data[3])} set to` +
-                    ` ${reAltCond(data[4], data[5])}`;
-                
-                alt.innerText = `Alert set to ${reAltCond(data[6], data[7])}`;
-
-                if (allData.SHTUp) {
-                    parent.style.backgroundColor = "green";
-                } else {
-                    parent.style.backgroundColor = "yellow";
-                }
-
-                checkBounds(data[4] != 2 && data[3] != RE_OFF, data, re, alt);
-            }
-
-            let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
-                allData.tempRe, allData.tempReCond, allData.tempReVal,
-                allData.tempAltCond, allData.tempAltVal];
-
-            if (!isCelcius) {
-                data[0] = tempConv(data[0], true);
-                data[1] = tempConv(data[1], true);
-                data[2] = tempConv(data[2], true);
-                data[5] = tempConv(data[5], true);
-                data[7] = tempConv(data[7], true);
-            }
-
-            proc(tempCon, data, "Temp");
-
-            data = [allData.hum, allData.humAvg, allData.humAvgPrev,
-                allData.humRe, allData.humReCond, allData.humReVal,
-                allData.humAltCond, allData.humAltVal];
-
-            proc(humCon, data, "Hum");
-            
-        }
-
-        let handleSoil = () => {
-            const cont = [soil1Con, soil2Con, soil3Con, soil4Con];
-
-            let checkBounds = (data, eleAltID) => {
-                if (((data[1] == 0) && (data[0] < data[2])) ||
-                    ((data[1] == 1) && (data[0] > data[2]))) {
+            if (((data[6] == 0) && (data[0] < data[7])) ||
+                ((data[6] == 1) && (data[0] > data[7]))) {
 
                     eleAltID.classList.add("boundBust");
                 } else {
                     eleAltID.classList.remove("boundBust");
                 }
-            }
-
-            let proc = (cont, data, name) => {
-                const parent = document.getElementById(cont.parentID);
-                const IDs = Object.keys(cont.readOnly);
-                const val = document.getElementById(IDs[0]);
-                const alt = document.getElementById(IDs[1]);
-
-                val.innerText = `${name}: ${data[0]}`;
-                alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
-   
-                if (allData[`${name}Up`]) {
-                    parent.style.backgroundColor = "green";
-                } else {
-                    parent.style.backgroundColor = "yellow";
-                }
-
-                checkBounds(data, alt);
-            }
-
-            cont.forEach((sensor, idx) => {
-                let tIdx = idx + 1;
-                
-                let data = [allData[`soil${tIdx}`], 
-                    allData[`soil${tIdx}AltCond`], allData[`soil${tIdx}AltVal`]];
-                proc(sensor, data, `soil${tIdx}`);
-            });
         }
 
-        let handleLight = () => {
-            // photo container as well as 
-        }
-
-        // RECEIVED MESSAGE HANDLERS
-
-        // Once all data is req in polling, calls this with reply.
-        let getAll = (data) => { // Sets the addData object to response
-            allData = data; // Allows use between poll interval waits
+        let proc = (cont, data, name) => {
             
-            const title = document.getElementById("title");
-            title.innerHTML = `Greenhouse Monitor V${data.firmv}`;
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const val = document.getElementById(IDs[0]);
+            const re = document.getElementById(IDs[1]);
+            const alt = document.getElementById(IDs[2]);
+            const U = isCelcius ? ' C' : ' F';
 
-            calibrateTime(data.sysTime); // Ensures sys clock is calib to client
-            handleTempHum();
-            handleSoil();
-            handleLight();
+            // Append units onto name.
+            name = (name === "Temp") ? name += U : name += ' %';
 
-            if (data.newLog === 1) getLog(); // Gets log if avail
-        }
+            val.innerText = `${name}: ${data[0].toFixed(1)} |` +
+                ` Avg: ${data[1].toFixed(1)} |` +
+                ` Prev Avg: ${data[2].toFixed(1)}`;
+            re.innerText = `Plug: ${relayNum(data[3])} set to` +
+                ` ${reAltCond(data[4], data[5])}`;
+            
+            alt.innerText = `Alert set to ${reAltCond(data[6], data[7])}`;
 
-        // Requires the html element ID, and value to update it to. Only runs
-        // upon a successful esp-32 change indicated in socket reply. Changes
-        // innerHTML in the event the value is HTML.
-        let defResp = (KVs = null, CBfunc = null) => { // Default response.
-            if (KVs) {
-                Object.keys(KVs).forEach(key => {
-                    allData[key] = KVs[key];
-                });
-            }
-
-            if (CBfunc) CBfunc();
-        };
-
-        // Set the trends when received back from socker server.
-        let setTrends = (data) => (trends = data); // Copies data to trends.
-
-        // All peripheral sensor data and controls.
-        let build = (container) => {
-
-            Object.keys(container.readOnly).forEach(ele => {
-                const data = container.readOnly[ele];
-                const e = document.createElement(data.eleType);
-                e.id = ele;
-                e.innerText = data.text
-                data.classes.forEach(cls => { // add classes to list.
-                    if (cls == null || cls == undefined) return;
-                    e.classList.add(cls);
-                });
-                document.getElementById(container.parentID).appendChild(e);
-            });
-        }
-
-        let buildLabel = (parent, data) => {
-            const label = document.createElement("div");
-            if (data.label === "Adjust") {
-                label.style.gridColumn = "1"; // Span 1 if adj.
+            if (allData.SHTUp) {
+                parent.style.backgroundColor = "rgb(0, 224, 27)";
             } else {
-                label.style.gridColumn = "1 / 3"; // Span 2 if regular inp
+                parent.style.backgroundColor = "yellow";
             }
-            label.innerText = data.label; // 
-            label.id = `${parent}Lab`;
-            return label;
+
+            checkBounds(data[4] != 2 && data[3] != RE_OFF, data, re, alt);
         }
 
-        // Input will always be displayed. If a rangeMap is sent, this will make
-        // the input be a display only, and the true value will be stored hidden.
-        let buildInput = (parent, data) => {
-            const ele = document.createElement(data.eleType);
-            ele.readOnly = true;
-            ele.id = parent;
+        let manipTemp = (data) => { // Do not affect standing values.
+            data[5] /= 100; // reduce to actual float
+            data[7] /= 100; // reduce to actual float
+            const prohibIdx = [3, 4, 6]; // Ignore these values in loop.
 
-            if (!data.dataPtr) {ele.value = 0; return ele;} 
+            if (!isCelcius) {
 
-            if (data.dataPtr && data.rangeMap) {
-                // Indicates that data falls outside of rangeMap, check specMap
-                if (data.specMap && !data.rangeMap[allData[data.dataPtr]]) {
-                    ele.value = data.specMap[allData[data.dataPtr]];
-                } else {
-                    ele.value = data.rangeMap[allData[data.dataPtr]];
-                }
+                data.forEach((item, idx) => {
+                    if (prohibIdx.indexOf(idx) != -1) return; // match
+                    data[idx] = ((item * 1.8) + 32); // Conv to F.   
+                });
+            }
+        }
 
+        let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
+            allData.tempRe, allData.tempReCond, allData.tempReVal,
+            allData.tempAltCond, allData.tempAltVal];
+
+        manipTemp(data);
+        proc(tempCon, data, "Temp");
+
+        data = [allData.hum, allData.humAvg, allData.humAvgPrev,
+            allData.humRe, allData.humReCond, allData.humReVal,
+            allData.humAltCond, allData.humAltVal];
+
+        proc(humCon, data, "Hum");
+        
+    }
+
+    let handleSoil = () => {
+        const cont = [soil1Con, soil2Con, soil3Con, soil4Con];
+
+        let checkBounds = (data, eleAltID) => {
+            if (((data[1] == 0) && (data[0] < data[2])) ||
+                ((data[1] == 1) && (data[0] > data[2]))) {
+
+                eleAltID.classList.add("boundBust");
             } else {
-                ele.value = allData[data.dataPtr]
-            }
-
-            return ele;
-        }
-
-        // builds submit button for input items.
-        let buildButton = (parent, data) => {
-            const button = document.createElement("button");
-            button.id = `${parent}But`;
-            button.innerText = "Submit";
-            button.onclick = () => data.butFunc();
-            return button;
-        }
-
-        let buildHidden = (parent, data) => { // This will contain real values
-            const actual = document.createElement(data.eleType);
-            actual.type = "hidden";
-            actual.id = `${parent}Hidden`;
-            actual.value = allData[data.dataPtr];
-            return actual;
-        }
-
-        let addListen = (disp, actual, ID, data) => {
-
-            disp.addEventListener("focus", () => {
-                const adj = document.getElementById(`${ID}Adj`);
-                
-                adj.innerHTML = `<input id="${ID}AdjBar" 
-                    type="range" min="${data.min}" max="${data.max}" 
-                    step="${data.step}">`;
-
-                const AdjBar = document.getElementById(`${ID}AdjBar`);
-
-                AdjBar.addEventListener("input", () => {
-                    if (actual) (actual.value = AdjBar.value);
-                    
-                    if (data.rangeMap != null) {
-                        disp.value = data.rangeMap[AdjBar.value];
-                    } else {
-                        disp.value = AdjBar.value;
-                    }
-                });
-
-                if (data.rangeMap != null) { // Set upon expansion.
-                    AdjBar.value = data.rangeMap.indexOf(disp.value);
-                } else {
-                    AdjBar.value = disp.value; 
-                }
-
-                disp.classList.add("selected");
-            });
-
-            disp.addEventListener("blur", () => {
-                disp.classList.remove("selected");
-            });
-        }
-
-        let expand = (container) => {
-            const button = document.getElementById(container.buttonID);
-            const obj = container.inputs;
-            const ID = container.parentID;
-            let idx = 0; // USed for expansion elements.
-
-            let append = (ele) => {
-                document.getElementById(ID).appendChild(ele);
-                Expansions[ID][idx++] = ele.id;
-            }
-
-            if (button.innerText === "Expand") {
-                Expansions[ID] = []; // Clear before use.
-                let idx = 0; // Used for expansion elements.
-
-                Object.keys(obj).forEach(ele => {
-                    const data = obj[ele];
-
-                    const label = buildLabel(ele, data);
-                    const e = buildInput(ele, data);
-                    const hidden = data.rangeMap ? buildHidden(ele, data) : null;
-                    const but = data.incBut ? buildButton(ele, data) : null;
-                    append(label);
-                    append(e);
-                    if (hidden != null) append(hidden);
-                    if (but != null) append(but);
-          
-                    data.classes.forEach(cls => { // Add classes
-                        if (cls == null || cls == undefined) return; // none
-                        e.classList.add(cls);
-                    });
-
-                    // If non-input, do not set event listeners.
-                    if (data.eleType === "input") addListen(e, hidden, ID, data);
-                });
-
-                button.innerText = "Contract";
-   
-            } else if (button.innerText === "Contract") {
-                Expansions[ID].forEach(id => {
-                    document.getElementById(id).remove();
-                });
-
-                button.innerText = "Expand";
+                eleAltID.classList.remove("boundBust");
             }
         }
 
-        let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val) + 1;
-        let reAltCond = (cond, val) => {
-            const textConv = ["<", ">", "NONE"];
-            if (cond == 2) return textConv[cond];
-            return `${textConv[cond]} ${val.toFixed(2)}`;
+        let proc = (cont, data, name) => {
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const val = document.getElementById(IDs[0]);
+            const alt = document.getElementById(IDs[1]);
+
+            val.innerText = `${name}: ${data[0]}`;
+            alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
+
+            if (allData[`${name}Up`]) {
+                parent.style.backgroundColor = "rgb(0, 224, 27)";
+            } else {
+                parent.style.backgroundColor = "yellow";
+            }
+
+            checkBounds(data, alt);
         }
 
-        // Pings the server to see if new firmware is available. If the server 
-        // has a fw version different than the device, it will reply with the
-        // new version, which will allow a clickable update.
-        const checkNewFW = () => {
-            return new Promise((resolve, reject) => {
-            fetch(OTAURL)
-            .then(res => res.json())
-            .then(res => {
-                const {version} = res;
-                const noActionResp = ["Invalid JSON", "match", "wap", 
-                    "Connection open fail", "Connection init fail"];
-                    
-
-                // If -1, means that there is an actual value, so the update
-                // should be available in button form.
-                if (noActionResp.indexOf(version) == -1) {
-                    const html = `<button id="FWbut" class="sleekButton" 
-                        onclick="DLfirmware('${res.signatureURL}', 
-                        '${res.firmwareURL}')"> Update to Version ${version}
-                        </button>`;
-
-                    OTAdisp.innerHTML = html;
-                    resolve(200);
-                }
-            })
-            .catch(err => reject(err));
+        cont.forEach((sensor, idx) => {
+            let tIdx = idx + 1;
+            
+            let data = [allData[`soil${tIdx}`], 
+                allData[`soil${tIdx}AltCond`], allData[`soil${tIdx}AltVal`]];
+            proc(sensor, data, `soil${tIdx}`);
         });
-        }
+    }
 
-        // Triggered by the DL firmware button. Downloads the OTA update,
-        // and if successful, restarts the webpage. This will clear the button
-        // since the versions will be matched.
-        const DLfirmware = (sigURL, firURL) => {
-            const URL = `${URLprotocol}://${URLbody}/OTAUpdate?url=${firURL}
-                &sigurl=${sigURL}`;
+    let handleLight = () => {
+        // photo container as well as 
+    }
 
-            let updHTML = OTAdisp.innerHTML;
+    // RECEIVED MESSAGE HANDLERS
 
-            fetch(URL)
-            .then(res => res.json())
-            .then(res => {
-                const {status} = res;
-                if (status === "OK") { // Exp response from the server.
-                    let secToReload = 10;
-                    let intervalID = setInterval(() => { // Countdown to reload
-                        OTAdisp.innerText = `Restarting in ${secToReload--}`;
-                        if (secToReload < 1) {
-                            clearInterval(intervalID);
-                            window.location.reload();
-                        }
-                    }, 1000);
-                } else {
-                    updHTML += " (Failed)";
-                    OTAdisp.innerHTML = updHTML;
-                }
-            })
-            .catch(err => {
-                updHTML += ` (Error)`;
-                OTAdisp.innerHTML = updHTML;
+    // Once all data is req in polling, calls this with reply.
+    let getAll = (data) => { // Sets the addData object to response
+        allData = data; // Allows use between poll interval waits
+        
+        const title = document.getElementById("title");
+        title.innerHTML = `Greenhouse Monitor V${data.firmv}`;
+
+        calibrateTime(data.sysTime); // Ensures sys clock is calib to client
+        handleTempHum();
+        handleSoil();
+        handleLight();
+
+        if (data.newLog === 1) getLog(); // Gets log if avail
+    }
+
+    // Requires the html element ID, and value to update it to. Only runs
+    // upon a successful esp-32 change indicated in socket reply. Changes
+    // innerHTML in the event the value is HTML.
+    let defResp = (KVs = null, CBfunc = null) => { // Default response.
+        if (KVs) {
+            Object.keys(KVs).forEach(key => {
+                allData[key] = KVs[key];
             });
         }
 
-        // When called, sets a timeout for 15 sec to check for OTA updates,
-        // and start interval to update after n amount of time.
-        let checkUpdates = () => {
+        if (CBfunc) CBfunc();
+    };
 
-            let runCheck = (curTime) => { // Runs 
-                checkNewFW()
-                .then(resp => {
-                    localStorage.setItem("OTA", curTime);
-                })
-                .catch(err => console.log(err));
+    // Set the trends when received back from socker server.
+    let setTrends = (data) => (trends = data); // Copies data to trends.
+
+
+    let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val) + 1;
+    let reAltCond = (cond, val) => {
+        const textConv = ["<", ">", "NONE"];
+        if (cond == 2) return textConv[cond];
+        return `${textConv[cond]} ${val.toFixed(1)}`;
+    }
+
+    // Pings the server to see if new firmware is available. If the server 
+    // has a fw version different than the device, it will reply with the
+    // new version, which will allow a clickable update.
+    const checkNewFW = () => {
+        return new Promise((resolve, reject) => {
+        fetch(OTAURL)
+        .then(res => res.json())
+        .then(res => {
+            const {version} = res;
+            const noActionResp = ["Invalid JSON", "match", "wap", 
+                "Connection open fail", "Connection init fail"];
+                
+
+            // If -1, means that there is an actual value, so the update
+            // should be available in button form.
+            if (noActionResp.indexOf(version) == -1) {
+                const html = `<button id="FWbut" class="sleekButton" 
+                    onclick="DLfirmware('${res.signatureURL}', 
+                    '${res.firmwareURL}')"> Update to Version ${version}
+                    </button>`;
+
+                OTAdisp.innerHTML = html;
+                resolve(200);
+            }
+        })
+        .catch(err => reject(err));
+    });
+    }
+
+    // Triggered by the DL firmware button. Downloads the OTA update,
+    // and if successful, restarts the webpage. This will clear the button
+    // since the versions will be matched.
+    const DLfirmware = (sigURL, firURL) => {
+        const URL = `${URLprotocol}://${URLbody}/OTAUpdate?url=${firURL}
+            &sigurl=${sigURL}`;
+
+        let updHTML = OTAdisp.innerHTML;
+
+        fetch(URL)
+        .then(res => res.json())
+        .then(res => {
+            const {status} = res;
+            if (status === "OK") { // Exp response from the server.
+                let secToReload = 10;
+                let intervalID = setInterval(() => { // Countdown to reload
+                    OTAdisp.innerText = `Restarting in ${secToReload--}`;
+                    if (secToReload < 1) {
+                        clearInterval(intervalID);
+                        window.location.reload();
+                    }
+                }, 1000);
+            } else {
+                updHTML += " (Failed)";
+                OTAdisp.innerHTML = updHTML;
+            }
+        })
+        .catch(err => {
+            updHTML += ` (Error)`;
+            OTAdisp.innerHTML = updHTML;
+        });
+    }
+
+    // When called, sets a timeout for 15 sec to check for OTA updates,
+    // and start interval to update after n amount of time.
+    let checkUpdates = () => {
+
+        let runCheck = (curTime) => { // Runs 
+            checkNewFW()
+            .then(resp => {
+                localStorage.setItem("OTA", curTime);
+            })
+            .catch(err => console.log(err));
+        }
+
+        setTimeout(() => runCheck(Date.now()), 15000); // Chk after 15 sec
+
+        setInterval(() => {
+            const lastCheck = Number(localStorage.getItem("OTA"));
+            const curTime = Date.now();
+
+            if (lastCheck === null) { // Has not been saved yet, first init.
+                runCheck(curTime);
+            } else {
+                const expireTime = lastCheck + CHK_OTA_INTV;
+                if (curTime >= expireTime) runCheck(curTime);
             }
 
-            setTimeout(() => runCheck(Date.now()), 15000); // Chk after 15 sec
+        }, FW_CHECK_INTV);
+    }
 
-            setInterval(() => {
-                const lastCheck = Number(localStorage.getItem("OTA"));
-                const curTime = Date.now();
-   
-                if (lastCheck === null) { // Has not been saved yet, first init.
-                    runCheck(curTime);
-                } else {
-                    const expireTime = lastCheck + CHK_OTA_INTV;
-                    if (curTime >= expireTime) runCheck(curTime);
-                }
+    const tempCon = buildCon("temp", 
+        new cmdBuild("ATTACH_TEMP_RELAY", handleTempHum),
+        new cmdBuild("SET_TEMP_RE_LWR_THAN", handleTempHum),
+        new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum));
 
-            }, FW_CHECK_INTV);
-        }
+    const humCon = buildCon("hum", 
+        new cmdBuild("ATTACH_HUM_RELAY", handleTempHum),
+        new cmdBuild("SET_HUM_RE_LWR_THAN", handleTempHum),
+        new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum));
 
-        // !!!! Add special in about temperature, build before going on, the multiplication and F vs C.
-        const tempCon = buildCon("temp", 
-            new cmdBuild("ATTACH_TEMP_RELAY", handleTempHum),
-            new cmdBuild("SET_TEMP_RE_LWR_THAN", handleTempHum),
-            new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum));
+    const soil1Con = buildCon("soil1", null, null, 
+        new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil));
 
-        const humCon = buildCon("hum", 
-            new cmdBuild("ATTACH_HUM_RELAY", handleTempHum),
-            new cmdBuild("SET_HUM_RE_LWR_THAN", handleTempHum),
-            new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum));
+    const soil2Con = buildCon("soil2", null, null, 
+        new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil));
 
-        const soil1Con = buildCon("soil1", null, null, 
-            new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil));
+    const soil3Con = buildCon("soil3", null, null, 
+        new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil));
 
-        const soil2Con = buildCon("soil2", null, null, 
-            new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil));
+    const soil4Con = buildCon("soil4", null, null, 
+        new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil));
 
-        const soil3Con = buildCon("soil3", null, null, 
-            new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil));
+    const lightCon = buildCon("light", 
+        new cmdBuild("ATTACH_LIGHT_RELAY", handleLight),
+        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null);
 
-        const soil4Con = buildCon("soil4", null, null, 
-            new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil));
+    const buildContainers = () => {
+        buildRO(tempCon);
+        buildRO(humCon);
+        buildRO(soil1Con);
+        buildRO(soil2Con);
+        buildRO(soil3Con);
+        buildRO(soil4Con);
+        buildRO(lightCon);
+    }
 
-        const lightCon = buildCon("light", 
-            new cmdBuild("ATTACH_LIGHT_RELAY", handleLight),
-            new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null);
+    const addListeners = () => {
+    document.getElementById(tempCon.buttonID).onclick = () => expand(tempCon);
+    document.getElementById(humCon.buttonID).onclick = () => expand(humCon);
+    document.getElementById(soil1Con.buttonID).onclick = () => expand(soil1Con);
+    document.getElementById(soil2Con.buttonID).onclick = () => expand(soil2Con);
+    document.getElementById(soil3Con.buttonID).onclick = () => expand(soil3Con);
+    document.getElementById(soil4Con.buttonID).onclick = () => expand(soil4Con);
+    document.getElementById(lightCon.buttonID).onclick = () => expand(lightCon);
+    }
 
-        const buildContainers = () => {
-            build(tempCon);
-            build(humCon);
-            build(soil1Con);
-            build(soil2Con);
-            build(soil3Con);
-            build(soil4Con);
-            build(lightCon);
-        }
-
-        const addListeners = () => {
-        document.getElementById(tempCon.buttonID).onclick = () => expand(tempCon);
-        document.getElementById(humCon.buttonID).onclick = () => expand(humCon);
-        document.getElementById(soil1Con.buttonID).onclick = () => expand(soil1Con);
-        document.getElementById(soil2Con.buttonID).onclick = () => expand(soil2Con);
-        document.getElementById(soil3Con.buttonID).onclick = () => expand(soil3Con);
-        document.getElementById(soil4Con.buttonID).onclick = () => expand(soil4Con);
-        document.getElementById(lightCon.buttonID).onclick = () => expand(lightCon);
-        }
-
-        let loadPage = () => {
-            buildContainers();
-            addListeners();
-            initWebSocket(); // Inits the websocket protocol.
-            getLog(); // Gets the log when loading the page.
-            getTrends(6); // Gets the previous 6 hours of trend data.
-            checkUpdates(); // Starts firmware checking timeout and interval.
-        }
+    let loadPage = () => {
+        buildContainers();
+        addListeners();
+        initWebSocket(); // Inits the websocket protocol.
+        getLog(); // Gets the log when loading the page.
+        getTrends(6); // Gets the previous 6 hours of trend data.
+        checkUpdates(); // Starts firmware checking timeout and interval.
+    }
 
     </script>
     

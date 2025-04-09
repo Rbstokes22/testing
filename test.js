@@ -1,7 +1,9 @@
 "use strict";
 
-let val = 45;
+let obj = {a: 22, b: 33};
 
-val = false ? val * 100 : (((val - 32) / 1.8).toFixed(2) * 100);
+Object.keys(obj).forEach((key, val) => {
+    console.log(key);
+    console.log(val);
+});
 
-console.log(val);
