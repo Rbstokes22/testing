@@ -11,6 +11,10 @@
             border-radius: 5px;
         }
 
+        body {
+            color: black;
+        }
+
         #title {
             text-align: center;
             font-size: 1.5em;
@@ -81,7 +85,7 @@
         <div id="soil3Con" class="item"></div>
         <div id="soil4Con" class="item"></div>
         <div id="lightCon" class="item"></div>
-        <div id="specCon" class="item"></div>
+        <div id="specCon" class="item">SPEC HERE</div>
         <div id="re1Con" class="item">RE1</div>
         <div id="re2Con" class="item">RE2</div>
         <div id="re3Con" class="item">RE3</div>
@@ -94,12 +98,13 @@
 
     <script>
 
-    // Everything seems to be working fine as far as the temperature is communicated.
-    // Next establish a new min and max constructor or something, instead of rolling
-    // it into the input. Use this when building buildCon. Also look at potentially
-    // changing the min and max values based on realistic min and max. F can extend
-    // from -30 to 120, and maybe C can extend from -30 to 50, to increase resolution
-    // using the 0.5 step.
+    // Able to use build con with different selection to build any container making
+    // it modular and a 1 stop shop. Temps all set and working. Ranges all good and 
+    // working. Continue building the light spectrum, which will be a standalone 
+    // graph with buttons to see current, averages, and prev averages. 
+    // Then build relays, and finish up with a setting box that will display
+    // firmware avail, system time, if it has been calibrated, report sending,
+    // units F or C, and a clear averages button.
 
     // Network and Sockets
     const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
@@ -126,6 +131,7 @@
     const logDelim = ';';
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
+    const sensUpBg = ["yellow", "rgb(0, 224, 27)"];
 
     // All commands from socketHandler.hpp. These must correspond with the
     // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
@@ -176,12 +182,10 @@
 
     // Input build. Builds the interactive portion to make adjustments to
     // system settings. Pass null if non-exist. Returns constructed object.
-    let inputBuild = function(min, max, step, eleType, label, incBut, 
+    let inputBuild = function(ranges, eleType, label, incBut, 
         classes, dataPtr, rangeMap, specMap, butFunc) {
 
-        this.min = min; // range min
-        this.max = max; // range max
-        this.step = step; // step size of range bar.
+        this.ranges = ranges; // All the applicable input ranges
         this.eleType = eleType; // element type. i.e. "input".
         this.label = label; // input box label.
         this.incBut = incBut; // bool. Include button.
@@ -206,18 +210,48 @@
         return this;
     }
 
+    let rangeBuild = function(min, max, step) {
+        this.min = min; // range minimum
+        this.max = max; // range max
+        this.step = step; // Step size
+        return this;
+    }
+
+    // Checks the value and that it is within the specified range. Changes BG
+    // to green and returns true upon success, and upon failure, alerts, and
+    // changes the BG to red returning false.
+    let QC = (val, ranges, parentID, isTemp = false) => {
+        const ele = document.getElementById(parentID);
+
+        val = isTemp ? val / 100 : val; // If temperature, div val by 100.
+
+        if (val >= ranges.min && val <= ranges.max) {
+            ele.style.backgroundColor = "rgb(0, 224, 27)";
+            return true;
+        } else {
+            ele.style.backgroundColor = "red";
+            if (!isCelcius) {
+                window.alert(`${((val * 1.8) + 32).toFixed(1)} out of range ` +
+                    `${((ranges.min * 1.8) + 32).toFixed(1)} to ` +
+                    `${((ranges.max * 1.8) + 32).toFixed(1)}`);
+            } else {
+                window.alert(`${val} out of range ${ranges.min} to ` +
+                `${ranges.max}`);
+            }
+            return false;
+        }
+    }
+
     // Build container. This is a sort of constructor that takes the name,
     // relay command, and both the relay and alert setting commands. Pass
     // null if non-exist. Can be used for the majority of containers since
     // the naming convention is cookie-cutter. Builds and returns container.
-    let buildCon = (name, re, reSet, altSet) => {
+    let buildCon = (name, re, reSet, altSet, darkSet, ranges) => {
         
         // ATTENTION: Read only will consist of data reported by ESP. It
         // will show for example, temperature, relay, and alert settings.
         // Input will allow those settings to be changed by signalling srvr.
 
-        // Change temperature step size ONLY depending on units.
-        const step = (name === "temp" && isCelcius) ? 0.5 : 1;
         let RO = {}, INP = {}; // Read only and Input.
 
         RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); // Pri
@@ -225,27 +259,30 @@
         if (re) { // Relay selection. If exists, builds boxes.
             RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-            INP[`${name}ReAtt`] = new inputBuild(0, 4, 1, "input", "Plug", true, 
-                ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"], 
+            INP[`${name}ReAtt`] = new inputBuild(ranges.re, "input", "Plug", 
+                true, ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"], 
                 {255: "NONE"}, () => {
                     
                 const cmd = convert(re.cmd); 
-                const reNum = document .getElementById(`${name}ReAttHidden`)
+                const reNum = document.getElementById(`${name}ReAttHidden`)
                     .value; // Relay number
 
                 // Updates the diplay using ESP32 protocol.
                 const disp = (reNum == 4 ) ? RE_OFF : reNum;
-                const ID = getID(defResp, {[`${name}Re`]: disp}, re.callBack); 
-                socket.send(`${cmd}/${reNum}/${ID}`);
+                const ID = getID(defResp, {[`${name}Re`]: disp}, re.callBack);
+
+                if (QC(reNum, ranges.re, `${name}ReAtt`)) {
+                    socket.send(`${cmd}/${reNum}/${ID}`);
+                }
             });
         }
 
         if (reSet) { // Relay setting condition and value.
-            INP[`${name}ReLTGT`] = new inputBuild(0, 2, 1, "input", "Plug Cond", 
-                false, ["smallItem"], `${name}ReCond`, 
+            INP[`${name}ReLTGT`] = new inputBuild(ranges.reCond, "input", 
+                "Plug Cond", false, ["smallItem"], `${name}ReCond`, 
                 ["Less Than", "Gtr Than", "NONE"], null, null);
 
-            INP[`${name}ReSetAdj`] = new inputBuild(-30, 120, step, "input", 
+            INP[`${name}ReSetAdj`] = new inputBuild(ranges.reSet, "input", 
                 `Plug ${name}`, true, ["smallItem"], `${name}ReVal`, null, 
                 null, () => {
                 
@@ -265,18 +302,23 @@
                 const ID = getID(defResp, 
                     {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
                     reSet.callBack);
-                socket.send(`${cmd}/${val}/${ID}`);
+
+                if (QC(cond, ranges.reCond, `${name}ReLTGT`) &&
+                    QC(val, ranges.reSet, `${name}ReSetAdj`, name === "temp")) {
+
+                    socket.send(`${cmd}/${val}/${ID}`);  
+                }
             });
         }
 
         if (altSet) { // Alert setting condition and value.
             RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-            INP[`${name}AltLTGT`] = new inputBuild(0, 2, 1, "input", 
+            INP[`${name}AltLTGT`] = new inputBuild(ranges.altCond, "input", 
                 "Alert Cond", false, ["smallItem"], `${name}AltCond`, 
                 ["Less Than", "Gtr Than", "NONE"], null, null);
 
-            INP[`${name}AltSetAdj`] = new inputBuild(-30, 120, step, "input", 
+            INP[`${name}AltSetAdj`] = new inputBuild(ranges.altSet, "input", 
                 `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
                 null, () => {
 
@@ -296,14 +338,40 @@
                 const ID = getID(defResp, 
                     {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
                     altSet.callBack);
-                socket.send(`${cmd}/${val}/${ID}`);
-                });
+
+                if (QC(cond, ranges.altCond, `${name}AltLTGT`) &&
+                    QC(val, ranges.altSet, `${name}AltSetAdj`, 
+                        name === "temp")) {
+
+                    socket.send(`${cmd}/${val}/${ID}`);  
+                }
+            });
+        }
+
+        if (darkSet) { // Keeps track of the duration of light that exceeds val.
+            RO[`${name}Dur`] = new RObuild("div", "0", ["smallItem", "span4"]);
+
+            RO[`${name}Dark`] = new RObuild("div", "0", ["smallItem", "span4"]);
+
+            INP[`${name}DarkSet`] = new inputBuild(ranges.darkSet, "input",
+                "Dark value", true, ["smallItem"], "darkVal", null, null,
+                () => {
+                    const cmd = convert(darkSet.cmd);
+                    const val = document.getElementById(`${name}DarkSet`).value;
+                    const ID = getID(defResp, {"darkVal": val}, 
+                        darkSet.callBack);
+
+                    if (QC(val, ranges.darkSet, `${name}DarkSet`)) {
+                        socket.send(`${cmd}/${val}/${ID}`);
+                    }
+                }
+            )
         }
 
         // Once all selection have been built, build expan button and
         // adjustment bar.
         RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
-        INP[`${name}ConAdj`] = new inputBuild(0, 0, 0, "div", "Adjust", 
+        INP[`${name}ConAdj`] = new inputBuild(null, "div", "Adjust", 
             false, ["smallItem", "span3"], null, null, null);
 
         return new eleBuild(`${name}Con`, RO, INP); // Return object.
@@ -398,8 +466,8 @@
     // populated with a numerical value. If no map is sent, serves as both an
     // input and display.
     let buildInput = (parent, data, contID) => {
-        const ele = document.createElement(data.eleType);
 
+        const ele = document.createElement(data.eleType);
         ele.id = parent;
 
         if (!data.dataPtr) { // No pointer/key to JSON key/val.
@@ -420,9 +488,12 @@
         } else {
             ele.readOnly = false; // Allows use of input or adj bar.
 
-            if (contID === "tempCon") { // ESP conv rules for temp only.
-                ele.value = isCelcius ? allData[data.dataPtr] / 100 :
-                    ((allData[data.dataPtr] / 100) * 1.8) + 32;
+            // ESP rules dictate that temp is passed in C multiplied by 100 for
+            // float point precision. 
+            if (contID === "tempCon") { 
+                ele.value = isCelcius ? 
+                    Number(allData[data.dataPtr] / 100).toFixed(1) :
+                    Number(((allData[data.dataPtr] / 100) * 1.8) + 32).toFixed(1);
             } else {
                 ele.value = allData[data.dataPtr];
             }
@@ -449,13 +520,22 @@
     }
 
     let addListen = (disp, actual, ID, data) => {
-
+        
         disp.addEventListener("focus", () => {
             const adj = document.getElementById(`${ID}Adj`);
-            
-            adj.innerHTML = `<input id="${ID}AdjBar" 
-                type="range" min="${data.min}" max="${data.max}" 
-                step="${data.step}">`;
+            let min = data.ranges.min;
+            let max = data.ranges.max;
+            let step = data.ranges.step;
+
+            if (["tempReVal", "tempAltVal"].indexOf(data.dataPtr) != -1 &&
+                !isCelcius) { // Convert to F if set, before use.
+                min = (min * 1.8) + 32;
+                max = (max * 1.8) + 32;
+                step = 1;
+            }
+
+            adj.innerHTML = `<input id="${ID}AdjBar" type="range" min="${min}" 
+                max="${max}" step="${step}">`;
 
             const AdjBar = document.getElementById(`${ID}AdjBar`);
 
@@ -631,11 +711,14 @@
         }
     }
 
-    let handleTempHum = () => {
+    let handleTempHum = () => { // Handles temperature and humidity container.
         
-        let checkBounds = (condition, data, eleReID, eleAltID) => {
-            
-            if (condition) { // Opening conditon for relay only. Ensure set.
+        // Checks the bounds, and if the temp/hum is out of bounds, adds class.
+        let checkBounds = (data, eleReID, eleAltID) => {
+
+            // Check that relay is in play and its has a value.
+            if (data[3] != RE_OFF) { 
+                // If true, check that the relay has a setting other than NONE.
                 if (((data[4] == 0) && (data[0] < data[5])) ||
                     ((data[4] == 1) && (data[0] > data[5]))) {
 
@@ -643,10 +726,12 @@
                 } else {
                     eleReID.classList.remove("boundBust");
                 }
+
             } else {
                 eleReID.classList.remove("boundBust");
             }
 
+            // Next check that the alert has a setting other than NONE.
             if (((data[6] == 0) && (data[0] < data[7])) ||
                 ((data[6] == 1) && (data[0] > data[7]))) {
 
@@ -656,6 +741,8 @@
                 }
         }
 
+        // Processes data from the allData object, to display the current
+        // settings and values in the RO portion of the tempcon.
         let proc = (cont, data, name) => {
             
             const parent = document.getElementById(cont.parentID);
@@ -668,27 +755,26 @@
             // Append units onto name.
             name = (name === "Temp") ? name += U : name += ' %';
 
+            // Set the text for the RO portions of the tempcon.
             val.innerText = `${name}: ${data[0].toFixed(1)} |` +
                 ` Avg: ${data[1].toFixed(1)} |` +
                 ` Prev Avg: ${data[2].toFixed(1)}`;
+
             re.innerText = `Plug: ${relayNum(data[3])} set to` +
                 ` ${reAltCond(data[4], data[5])}`;
             
             alt.innerText = `Alert set to ${reAltCond(data[6], data[7])}`;
 
-            if (allData.SHTUp) {
-                parent.style.backgroundColor = "rgb(0, 224, 27)";
-            } else {
-                parent.style.backgroundColor = "yellow";
-            }
-
-            checkBounds(data[4] != 2 && data[3] != RE_OFF, data, re, alt);
+            parent.style.backgroundColor = sensUpBg[allData["SHTUp"]];
+            // Check bounds once processed to ensure correct coloring.
+            checkBounds(data, re, alt);
         }
 
+        // changes the temperature to the correct float value.
         let manipTemp = (data) => { // Do not affect standing values.
-            data[5] /= 100; // reduce to actual float
-            data[7] /= 100; // reduce to actual float
-            const prohibIdx = [3, 4, 6]; // Ignore these values in loop.
+            data[5] /= 100; // reduce int to float
+            data[7] /= 100; // reduce int to float
+            const prohibIdx = [3, 4, 6]; // Ignore these indicies in loop.
 
             if (!isCelcius) {
 
@@ -699,6 +785,7 @@
             }
         }
 
+        // array with all the temperature data to process.
         let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
             allData.tempRe, allData.tempReCond, allData.tempReVal,
             allData.tempAltCond, allData.tempAltVal];
@@ -706,17 +793,18 @@
         manipTemp(data);
         proc(tempCon, data, "Temp");
 
+        // update array with the humidity data to process.
         data = [allData.hum, allData.humAvg, allData.humAvgPrev,
             allData.humRe, allData.humReCond, allData.humReVal,
             allData.humAltCond, allData.humAltVal];
 
-        proc(humCon, data, "Hum");
-        
+        proc(humCon, data, "Hum"); 
     }
 
-    let handleSoil = () => {
-        const cont = [soil1Con, soil2Con, soil3Con, soil4Con];
+    let handleSoil = () => { // Handles all soil containers.
+        const cont = [soil1Con, soil2Con, soil3Con, soil4Con]; // estab cont.
 
+        // Changes RO display color if value exceeds bounds.
         let checkBounds = (data, eleAltID) => {
             if (((data[1] == 0) && (data[0] < data[2])) ||
                 ((data[1] == 1) && (data[0] > data[2]))) {
@@ -727,6 +815,8 @@
             }
         }
 
+        // processes data from the allData object, to diplay the current setting
+        // and values in the RO portion of each soilCon.
         let proc = (cont, data, name) => {
             const parent = document.getElementById(cont.parentID);
             const IDs = Object.keys(cont.readOnly);
@@ -736,17 +826,12 @@
             val.innerText = `${name}: ${data[0]}`;
             alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
 
-            if (allData[`${name}Up`]) {
-                parent.style.backgroundColor = "rgb(0, 224, 27)";
-            } else {
-                parent.style.backgroundColor = "yellow";
-            }
-
+            parent.style.backgroundColor = sensUpBg[allData[`${name}Up`]];
             checkBounds(data, alt);
         }
 
         cont.forEach((sensor, idx) => {
-            let tIdx = idx + 1;
+            let tIdx = idx + 1; // Temp index, used only for display soil.
             
             let data = [allData[`soil${tIdx}`], 
                 allData[`soil${tIdx}AltCond`], allData[`soil${tIdx}AltVal`]];
@@ -755,7 +840,44 @@
     }
 
     let handleLight = () => {
-        // photo container as well as 
+        
+        const getDur = (seconds) => {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h}:${m}:${s}`;
+        }
+
+
+        let checkBounds = () => {
+
+        } 
+
+        let proc = (cont, data, name) => {
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const val = document.getElementById(IDs[0]);
+            const re = document.getElementById(IDs[1]);
+            const dur = document.getElementById(IDs[2]);
+            const dark = document.getElementById(IDs[3])
+           
+            val.innerText = `${name}: ${data[0]} | Avg: ${data[1].toFixed(1)}` +
+                ` | Prev Avg: ${data[2].toFixed(1)}`;
+
+            re.innerText = `Plug: ${relayNum(data[3])} set to` +
+                ` ${reAltCond(data[4], data[5])}`;
+
+            dur.innerText = `Light duration: ${getDur(data[6])}`;
+            dark.innerText = `Dark val set to ${data[7]}`;
+
+            parent.style.backgroundColor = sensUpBg[allData.photoUp];
+        }
+
+        const data = [allData.photo, allData.photoAvg, allData.photoAvgPrev,
+            allData.lightRe, allData.lightReCond, allData.lightReVal,
+            allData.lightDur, allData.darkVal];
+
+        proc(lightCon, data, "Light");
     }
 
     // RECEIVED MESSAGE HANDLERS
@@ -892,28 +1014,69 @@
     const tempCon = buildCon("temp", 
         new cmdBuild("ATTACH_TEMP_RELAY", handleTempHum),
         new cmdBuild("SET_TEMP_RE_LWR_THAN", handleTempHum),
-        new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum));
+        new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum), null,
+        {
+            "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
+            "reSet": new rangeBuild(-30, 60, 0.5), // Celcius
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(-30, 60, 0.5) // Celcius
+        }
+    );
 
     const humCon = buildCon("hum", 
         new cmdBuild("ATTACH_HUM_RELAY", handleTempHum),
         new cmdBuild("SET_HUM_RE_LWR_THAN", handleTempHum),
-        new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum));
+        new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum), null,
+        {
+            "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
+            "reSet": new rangeBuild(1, 99, 1), 
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(1, 99, 1)
+        }
+    );
 
     const soil1Con = buildCon("soil1", null, null, 
-        new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil));
+        new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil), null,
+        {
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(1, 4094, 10)
+        }
+    );
 
     const soil2Con = buildCon("soil2", null, null, 
-        new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil));
+        new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil), null,
+        {
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(1, 4094, 10)
+        }
+    );
 
     const soil3Con = buildCon("soil3", null, null, 
-        new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil));
+        new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil), null,
+        {
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(1, 4094, 10)
+        }
+    );
 
     const soil4Con = buildCon("soil4", null, null, 
-        new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil));
+        new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil), null,
+        {
+            "altCond": new rangeBuild(0, 2, 1),
+            "altSet": new rangeBuild(1, 4094, 10)
+        }
+    );
 
     const lightCon = buildCon("light", 
         new cmdBuild("ATTACH_LIGHT_RELAY", handleLight),
-        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null);
+        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null, 
+        new cmdBuild("SET_DARK_VALUE", handleLight),
+        {
+            "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
+            "reSet": new rangeBuild(1, 4094, 10), 
+            "darkSet": new rangeBuild(1, 4094, 10), 
+        }
+    );
 
     const buildContainers = () => {
         buildRO(tempCon);

@@ -1,9 +1,14 @@
 "use strict";
 
-let obj = {a: 22, b: 33};
+let f = (val) => {
+    const h = Math.floor(val / 3600);
+    const m = Math.floor((val % 3600) / 60);
+    const s = val % 60;
+    return `${h}:${m}:${s}`;
+}
 
-Object.keys(obj).forEach((key, val) => {
-    console.log(key);
-    console.log(val);
-});
+const tm = 63777;
 
+
+
+console.log(f(tm));
