@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Greenhouse Controls</title>
+    <title>Greenhouse Controller</title>
     <style>
         
         button {
@@ -43,7 +43,7 @@
         }
 
         .item {
-            background-color: lightblue;
+            background-color: rgb(158, 74, 255);
             padding: 20px;
             text-align: left;
             border: 2px solid black;
@@ -64,16 +64,31 @@
             align-self: start; /* prevent stretching */
         }
 
+        #specCon {
+            display: grid;
+            grid-template-rows: auto;
+            gap: 5px;
+            align-self: start;
+            white-space: nowrap;
+        }
+
         .span2 {grid-column: span 2;}
         .span3 {grid-column: span 3;}
         .span4 {grid-column: span 4;}
-        .selected {background-color: yellow;}
-        .boundBust {background-color: red;}
+        .selected {background-color: rgb(255, 166, 0);}
+        .boundBust, .badRange {
+            background-color: rgb(196, 0, 0);
+            color: white;
+        }
+        .dark {
+            background-color: black;
+            color: white;
+        }
 
     </style>
 </head>
 <body onload="loadPage()">
-    <p id="title">Greenhouse Monitor</p>
+    <p id="title">MysteryGraph Greenhouse</p>
     <div id="otaUpd"></div>
     <div id="timeCal"></div>
 
@@ -85,7 +100,7 @@
         <div id="soil3Con" class="item"></div>
         <div id="soil4Con" class="item"></div>
         <div id="lightCon" class="item"></div>
-        <div id="specCon" class="item">SPEC HERE</div>
+        <div id="specCon" class="item"></div>
         <div id="re1Con" class="item">RE1</div>
         <div id="re2Con" class="item">RE2</div>
         <div id="re3Con" class="item">RE3</div>
@@ -97,14 +112,14 @@
     <button id="logBut" class="sleekButton" onclick="openLog()">Open Log</button>
 
     <script>
-
-    // Able to use build con with different selection to build any container making
-    // it modular and a 1 stop shop. Temps all set and working. Ranges all good and 
-    // working. Continue building the light spectrum, which will be a standalone 
-    // graph with buttons to see current, averages, and prev averages. 
-    // Then build relays, and finish up with a setting box that will display
-    // firmware avail, system time, if it has been calibrated, report sending,
-    // units F or C, and a clear averages button.
+    
+    // Done with light spec almost. Remove the text features, and include a 
+    // referene bar on the bottom which displays the max counts. Make each bar
+    // clickable or on hover, that displays its metadata being color, wavelength
+    // and others, maybe in another "blank" reference bar. Maybe labels would
+    // work as well, for color blind folks. So a 3 letter label BLU, or GRN.
+    // this can be like a few pixels wide, and then the bar starts after, this
+    // will have ot be gridded, but shouldnt be an issue.
 
     // Network and Sockets
     const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
@@ -117,6 +132,18 @@
 
     // Elements
     const OTAdisp = document.getElementById("otaUpd");
+
+    // Key names are colors that correspond with the JSON socket data. arr[0]
+    // is if it is light or dark, and affect text color, arr[1] is the display,
+    // and arr[2] is the css color.
+    const COLORS = {
+        "violet": ['L', "415nm", "violet"], "indigo": ['D', "445nm", "indigo"],
+        "blue": ['D', "485nm", "blue"], "cyan": ['L', "515nm", "cyan"],
+        "green": ['D', "555nm", "green"], "yellow": ['L', "590nm", "yellow"],
+        "orange": ['L', "630nm", "orange"], "red": ['D', "680nm", "red"],
+        "nir": ['D', "", "black"], "clear": ['L', "", "white"],
+    };
+    const MAX_SPEC_PX = 300; // Max color count pixels.
 
     // Intervals (millis)
     const POLL_INTV = 1000; // Poll interval to run GET_ALL.
@@ -131,7 +158,8 @@
     const logDelim = ';';
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
-    const sensUpBg = ["yellow", "rgb(0, 224, 27)"];
+    const sensUpBg = ["yellow", "rgb(0, 224, 27)"]; // Sensor up background
+    let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
 
     // All commands from socketHandler.hpp. These must correspond with the
     // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
@@ -226,10 +254,11 @@
         val = isTemp ? val / 100 : val; // If temperature, div val by 100.
 
         if (val >= ranges.min && val <= ranges.max) {
+            ele.classList.remove("badRange")
             ele.style.backgroundColor = "rgb(0, 224, 27)";
             return true;
         } else {
-            ele.style.backgroundColor = "red";
+            ele.classList.add("badRange");
             if (!isCelcius) {
                 window.alert(`${((val * 1.8) + 32).toFixed(1)} out of range ` +
                     `${((ranges.min * 1.8) + 32).toFixed(1)} to ` +
@@ -240,6 +269,32 @@
             }
             return false;
         }
+    }
+
+    let buildSpec = () => {
+        
+        const textColor = {'D': "white", 'L': "black"};
+            
+        Object.keys(COLORS).forEach(color => {
+            const e = document.createElement("div");
+            e.style.backgroundColor = `${COLORS[color][2]}`;
+            e.style.color = `${textColor[COLORS[color][0]]}`;
+            e.innerText = `${COLORS[color][1]}`;
+            e.id = color;
+            document.getElementById("specCon").appendChild(e);
+        });
+
+        const buttons = {"Current": 'C', "Avgs": 'A', "Prev Avgs": 'P'};
+        Object.keys(buttons).forEach(name => {
+            const b = document.createElement("button");
+            b.innerText = name;
+            b.id = `${buttons[name]}Spec`;
+            b.addEventListener("click", () => {
+                specDisplay = buttons[name]; // Change global
+                handleSpec(); // Update changes.
+            });
+            document.getElementById("specCon").appendChild(b);
+        });
     }
 
     // Build container. This is a sort of constructor that takes the name,
@@ -712,7 +767,7 @@
     }
 
     let handleTempHum = () => { // Handles temperature and humidity container.
-        
+
         // Checks the bounds, and if the temp/hum is out of bounds, adds class.
         let checkBounds = (data, eleReID, eleAltID) => {
 
@@ -839,7 +894,7 @@
         });
     }
 
-    let handleLight = () => {
+    let handlePhoto = () => {
         
         const getDur = (seconds) => {
             const h = Math.floor(seconds / 3600);
@@ -848,9 +903,25 @@
             return `${h}:${m}:${s}`;
         }
 
+        let checkBounds = (data, eleReID, darkID, durID) => {
+            // Check the relay is in play nad has a value.
+            if (data[3] != RE_OFF) {
+                if (((data[4] == 0) && (data[0] < data[5])) || 
+                    ((data[4] == 1) && (data[0] > data[5]))) {
 
-        let checkBounds = () => {
+                    eleReID.classList.add("boundBust");
+                } else {
+                    eleReID.classList.remove("boundBust");
+                }
+            }
 
+            if (data[0] < data[7]) {
+                darkID.classList.add("dark");
+                durID.classList.add("dark");
+            } else {
+                darkID.classList.remove("dark");
+                durID.classList.remove("dark");
+            }
         } 
 
         let proc = (cont, data, name) => {
@@ -871,6 +942,7 @@
             dark.innerText = `Dark val set to ${data[7]}`;
 
             parent.style.backgroundColor = sensUpBg[allData.photoUp];
+            checkBounds(data, re, dark, dur);
         }
 
         const data = [allData.photo, allData.photoAvg, allData.photoAvgPrev,
@@ -880,6 +952,42 @@
         proc(lightCon, data, "Light");
     }
 
+    let handleSpec = () => {
+        const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
+        const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"};
+
+        specButtonIDs.forEach(ID => {
+            const e = document.getElementById(ID);
+            if (ID[0] === specDisplay) {
+                e.classList.add("selected");
+            } else {
+                e.classList.remove("selected");
+            }
+        });
+
+        let counts = {}; // Used to gather all counts for comparison.
+        let maxCt = 1;
+
+        // Iterate to append counts with each color count. Depending on the
+        // selected current, avg, or prev avg, the specMap is used to append 
+        // the color with the right json key, with the counts being the value.
+        Object.keys(COLORS).forEach(color => {
+            const ctVal = allData[`${color}${specMap[specDisplay]}`];
+            counts[color] = ctVal;
+            maxCt = ctVal > maxCt ? ctVal : maxCt; // set max to highest count.
+        });
+
+        const ctPerPix = maxCt / MAX_SPEC_PX; // Counts per pixel.
+
+        // Iterates the counts and assigns a pixed value to each. The highest
+        // val will be at ~300 px, and the rest will be relative.
+        Object.keys(counts).forEach(color => {
+            const bar = document.getElementById(color);
+            bar.innerText = `${COLORS[color][1]} ${color} (${counts[color]}) counts`;
+            bar.style.width = `${Math.floor(counts[color] / ctPerPix)}px`;
+        });
+    }
+
     // RECEIVED MESSAGE HANDLERS
 
     // Once all data is req in polling, calls this with reply.
@@ -887,12 +995,13 @@
         allData = data; // Allows use between poll interval waits
         
         const title = document.getElementById("title");
-        title.innerHTML = `Greenhouse Monitor V${data.firmv}`;
+        title.innerHTML = `MysteryGraph Greenhouse V${data.firmv}`;
 
         calibrateTime(data.sysTime); // Ensures sys clock is calib to client
         handleTempHum();
         handleSoil();
-        handleLight();
+        handlePhoto();
+        handleSpec();
 
         if (data.newLog === 1) getLog(); // Gets log if avail
     }
@@ -1068,9 +1177,9 @@
     );
 
     const lightCon = buildCon("light", 
-        new cmdBuild("ATTACH_LIGHT_RELAY", handleLight),
-        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handleLight), null, 
-        new cmdBuild("SET_DARK_VALUE", handleLight),
+        new cmdBuild("ATTACH_LIGHT_RELAY", handlePhoto),
+        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handlePhoto), null, 
+        new cmdBuild("SET_DARK_VALUE", handlePhoto),
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 4094, 10), 
@@ -1100,6 +1209,7 @@
 
     let loadPage = () => {
         buildContainers();
+        buildSpec();
         addListeners();
         initWebSocket(); // Inits the websocket protocol.
         getLog(); // Gets the log when loading the page.
