@@ -101,6 +101,9 @@
     <div id="timeCal"></div>
 
     <div id="container">
+        <div id="main" class="item">
+            MAIN<div id="trends">Trends</div>
+        </div>
         <div id="tempCon" class="item"></div>
         <div id="humCon" class="item"></div>
         <div id="soil1Con" class="item"></div>
@@ -120,16 +123,28 @@
     <button id="logBut" class="sleekButton" onclick="openLog()">Open Log</button>
 
     <script>
-    
-    // Done with light spec almost. Remove the text features, and include a 
-    // referene bar on the bottom which displays the max counts. Make each bar
-    // clickable or on hover, that displays its metadata being color, wavelength
-    // and others, maybe in another "blank" reference bar. Maybe labels would
-    // work as well, for color blind folks. So a 3 letter label BLU, or GRN.
-    // this can be like a few pixels wide, and then the bar starts after, this
-    // will have ot be gridded, but shouldnt be an issue. Once done finish
-    // relays and main container to select units, report time, clear avgs,
-    // updates, and time.
+
+    // Started working the buildcon to use the bitwise, and it is pretty 
+    // straight forward, they just need some switch cases, which decreases 
+    // modularity but it is managable. 
+
+    // TO DO
+
+    // Add inputs to the specCon to adjust step, gain, and time. step and time
+    // should be combined to show integration time. Gain should be standalone
+    // that shows the x number. Also ensure to change from counts to % of 
+    // max, I think it is easier for the user to understand. This way they 
+    // can calibrate and sort of put their clear value where it needs to be, 
+    // and the rest can follow. 
+
+    // Relay containers should have their controls and timer setting. For 
+    // time set, use hh::mm::ss for start, and hh::mm for duration.
+
+    // Finally build the main container to be able to select T or F, report
+    // time, clear averages option, trends, time, and firmware updates. The
+    // trends should be an expandable button and include all trends for the
+    // specificed 2 - 12 hours.
+
 
     // Network and Sockets
     const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
@@ -169,30 +184,17 @@
     const logDelim = ';';
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
-    const sensUpBg = ["yellow", "rgb(0, 224, 27)"]; // Sensor up background
+    const sensUpBg = ["yellow", "rgb(0, 224, 27)"]; // Sensor up background clr
     let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
 
     // All commands from socketHandler.hpp. These must correspond with the
-    // enum. Set null as pos 0 to allow GET_ALL to be pos 1, or cmd 1.
-    const CMDS = [null, "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD",
-        "RELAY_1", "RELAY_2", "RELAY_3", "RELAY_4",
-        "RELAY_1_TIMER_ON", "RELAY_1_TIMER_OFF", 
-        "RELAY_2_TIMER_ON", "RELAY_2_TIMER_OFF",
-        "RELAY_3_TIMER_ON", "RELAY_3_TIMER_OFF",
-        "RELAY_4_TIMER_ON", "RELAY_4_TIMER_OFF",
-        "ATTACH_TEMP_RELAY", "SET_TEMP_RE_LWR_THAN", "SET_TEMP_RE_GTR_THAN",
-        "SET_TEMP_RE_COND_NONE", "SET_TEMP_ALT_LWR_THAN", "SET_TEMP_ALT_GTR_THAN",
-        "SET_TEMP_ALT_COND_NONE",
-        "ATTACH_HUM_RELAY", "SET_HUM_RE_LWR_THAN", "SET_HUM_RE_GTR_THAN", 
-        "SET_HUM_RE_COND_NONE", "SET_HUM_ALT_LWR_THAN", "SET_HUM_ALT_GTR_THAN",
-        "SET_HUM_ALT_COND_NONE", "CLEAR_TEMPHUM_AVG",
-        "SET_SOIL1_ALT_LWR_THAN", "SET_SOIL1_ALT_GTR_THAN", "SET_SOIL1_ALT_COND_NONE",
-        "SET_SOIL2_ALT_LWR_THAN", "SET_SOIL2_ALT_GTR_THAN", "SET_SOIL2_ALT_COND_NONE",
-        "SET_SOIL3_ALT_LWR_THAN", "SET_SOIL3_ALT_GTR_THAN", "SET_SOIL3_ALT_COND_NONE",
-        "SET_SOIL4_ALT_LWR_THAN", "SET_SOIL4_ALT_GTR_THAN", "SET_SOIL4_ALT_COND_NONE",
-        "ATTACH_LIGHT_RELAY", "SET_LIGHT_RE_LWR_THAN", "SET_LIGHT_RE_GTR_THAN",
-        "SET_LIGHT_RE_COND_NONE", "SET_DARK_VALUE", "CLEAR_LIGHT_AVG",
-        "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
+    // enum. Will be used to return the index num, which will be the cmd.
+    let CMDS = [null, // Used to index to a +1
+        "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", "RELAY_CTRL", 
+        "RELAY_TIMER", "ATTACH_RELAYS", "SET_TEMPHUM", "SET_SOIL", "SET_LIGHT", 
+        "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", "CLEAR_AVERAGES", 
+        "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"
+    ];
 
     // Declare all vars here, to save space. idNum is used to keep track of
     // socket commands, allData contains all sensor data, and log contains
@@ -355,7 +357,23 @@
                 const ID = getID(defResp, {[`${name}Re`]: disp}, re.callBack);
 
                 if (QC(reNum, ranges.re, `${name}ReAtt`)) {
-                    socket.send(`${cmd}/${reNum}/${ID}`);
+
+                    // IAW ESP32 bitwise protocol, adjust value to send.
+                    let output = reNum; // Set in the lower 4 bits.
+                    switch (name) {
+                        case "temp": // No action required, passes 0.
+                        break;
+
+                        case "hum":
+                        output |= (1 << 4);
+                        break;
+
+                        case "light": 
+                        output |= (2 << 4);
+                        break;
+                    }
+
+                    socket.send(`${cmd}/${output}/${ID}`);
                 }
             });
         }
@@ -372,7 +390,7 @@
                 const cond = document.getElementById(`${name}ReLTGTHidden`)
                     .value; // Relay condition
 
-                const cmd = convert(reSet.cmd) + Number(cond);
+                const cmd = convert(reSet.cmd);
                 let val = document.getElementById(`${name}ReSetAdj`).value;
 
                 // If temperature, ensures value is in celcius, and mult
@@ -389,7 +407,29 @@
                 if (QC(cond, ranges.reCond, `${name}ReLTGT`) &&
                     QC(val, ranges.reSet, `${name}ReSetAdj`, name === "temp")) {
 
-                    socket.send(`${cmd}/${val}/${ID}`);  
+                    // IAW ESP32 bitwise protocol, adjust value to send.
+                    let output = 0; // init to 0.
+
+                    switch (name) {
+                        case "temp": 
+                        output |= (1 << 25); // 1 for temperature
+                        output |= (cond << 16); 
+                        output |= val;
+                        break;
+
+                        case "hum": // No action req, passes 0.
+                        output |= (cond << 16);
+                        output |= val;
+                        break;
+
+                        case "light": 
+                        output |= (1 << 28); // 1 for photoresistor
+                        output |= (cond << 24);
+                        output |= val;
+                        break;
+                    }
+
+                    socket.send(`${cmd}/${output}/${ID}`);  
                 }
             });
         }
@@ -426,7 +466,29 @@
                     QC(val, ranges.altSet, `${name}AltSetAdj`, 
                         name === "temp")) {
 
-                    socket.send(`${cmd}/${val}/${ID}`);  
+                    // IAW ESP32 bitwise protocol, adjust value to send.
+                    let output = (1 << 24); // Init for alert.
+
+                    switch (name) {
+                        case "temp": 
+                        output |= (1 << 25); // 1 for temperature
+                        output |= (cond << 16); 
+                        output |= val;
+                        break;
+
+                        case "hum": // No action req, passes 0.
+                        output |= (cond << 16);
+                        output |= val;
+                        break;
+
+                        case "light": 
+                        output |= (1 << 28); // 1 for photoresistor
+                        output |= (cond << 24);
+                        output |= val;
+                        break;
+                    }
+
+                    socket.send(`${cmd}/${output}/${ID}`);  
                 }
             });
         }
@@ -445,6 +507,9 @@
                         darkSet.callBack);
 
                     if (QC(val, ranges.darkSet, `${name}DarkSet`)) {
+
+
+
                         socket.send(`${cmd}/${val}/${ID}`);
                     }
                 }
@@ -1036,7 +1101,7 @@
             // the others.
             if (color === maxClr || color === "clear") { // d
                 document.getElementById(color).innerText = 
-                    `${counts[color]} Counts`;
+                    `${(counts[color] / 655.35).toFixed(2)}% Max`;
             } else { // Remove text from rest.
                 document.getElementById(color).innerText = "";
             }
@@ -1182,9 +1247,9 @@
     }
 
     const tempCon = buildCon("temp", 
-        new cmdBuild("ATTACH_TEMP_RELAY", handleTempHum),
-        new cmdBuild("SET_TEMP_RE_LWR_THAN", handleTempHum),
-        new cmdBuild("SET_TEMP_ALT_LWR_THAN", handleTempHum), null, null, null,
+        new cmdBuild("ATTACH_RELAYS", handleTempHum),
+        new cmdBuild("SET_TEMPHUM", handleTempHum),
+        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(-30, 60, 0.5), // Celcius
@@ -1194,9 +1259,9 @@
     );
 
     const humCon = buildCon("hum", 
-        new cmdBuild("ATTACH_HUM_RELAY", handleTempHum),
-        new cmdBuild("SET_HUM_RE_LWR_THAN", handleTempHum),
-        new cmdBuild("SET_HUM_ALT_LWR_THAN", handleTempHum), null, null, null,
+        new cmdBuild("ATTACH_RELAYS", handleTempHum),
+        new cmdBuild("SET_TEMPHUM", handleTempHum),
+        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 99, 1), 
@@ -1206,7 +1271,7 @@
     );
 
     const soil1Con = buildCon("soil1", null, null, 
-        new cmdBuild("SET_SOIL1_ALT_LWR_THAN", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(1, 4094, 10)
@@ -1214,7 +1279,7 @@
     );
 
     const soil2Con = buildCon("soil2", null, null, 
-        new cmdBuild("SET_SOIL2_ALT_LWR_THAN", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(1, 4094, 10)
@@ -1222,7 +1287,7 @@
     );
 
     const soil3Con = buildCon("soil3", null, null, 
-        new cmdBuild("SET_SOIL3_ALT_LWR_THAN", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(1, 4094, 10)
@@ -1230,7 +1295,7 @@
     );
 
     const soil4Con = buildCon("soil4", null, null, 
-        new cmdBuild("SET_SOIL4_ALT_LWR_THAN", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(1, 4094, 10)
@@ -1238,9 +1303,9 @@
     );
 
     const lightCon = buildCon("light", 
-        new cmdBuild("ATTACH_LIGHT_RELAY", handlePhoto),
-        new cmdBuild("SET_LIGHT_RE_LWR_THAN", handlePhoto), null, 
-        new cmdBuild("SET_DARK_VALUE", handlePhoto), null, null,
+        new cmdBuild("ATTACH_RELAYS", handlePhoto),
+        new cmdBuild("SET_LIGHT", handlePhoto), null, 
+        new cmdBuild("SET_LIGHT", handlePhoto), null, null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 4094, 10), 
@@ -1254,9 +1319,7 @@
         {
             "reCont": new rangeBuild(0, 3, 1), "reTimer": new rangeBuild(0, )
         }
-    
-    
-    )
+    );
 
     const buildContainers = () => {
         buildRO(tempCon);
