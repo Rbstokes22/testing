@@ -56,7 +56,7 @@
         }
 
         #tempCon, #humCon, #soil1Con, #soil2Con, #soil3Con, #soil4Con,
-        #lightCon {
+        #lightCon, #specCon, .adjCon {
             display: grid;
             grid-template-columns: repeat(4, minmax(75px, 1fr));
             grid-template-rows: auto;
@@ -64,21 +64,30 @@
             align-self: start; /* prevent stretching */
         }
 
-        #specCon {
+        .valButton {
+            border: 2px solid black;
+            border-radius: 5px;
+            height: 4em;
+            width: 4em;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* #specCon {
             display: grid;
             grid-template-columns: 60px auto;
             grid-template-rows: auto;
             gap: 5px;
             align-self: start;
             white-space: nowrap;
-        }
+        } */
 
-        #specDisp {
+        /* #specDisp {
             grid-column: span 2;
             font-size: 1em;
             border: 2px solid black;
             padding: 2px;
-        }
+        } */
 
         .span2 {grid-column: span 2;}
         .span3 {grid-column: span 3;}
@@ -124,18 +133,15 @@
 
     <script>
 
-    // Started working the buildcon to use the bitwise, and it is pretty 
-    // straight forward, they just need some switch cases, which decreases 
-    // modularity but it is managable. 
+    // Removing specCon, and building it using the buildcon. Implemeneted a
+    // push button control for granularity, which works as advertise. Next,
+    // continue building specCon and introduce the integration display as well.
+    // This will probably need another div inside, that is setup like the
+    // former specCon, and can display each of the values.
 
-    // TO DO
-
-    // Add inputs to the specCon to adjust step, gain, and time. step and time
-    // should be combined to show integration time. Gain should be standalone
-    // that shows the x number. Also ensure to change from counts to % of 
-    // max, I think it is easier for the user to understand. This way they 
-    // can calibrate and sort of put their clear value where it needs to be, 
-    // and the rest can follow. 
+    // Change the main specCon display to show the % of max for easier client
+    // understanding, or maybe have counts and %. This will make calibration
+    // much easier to understand.
 
     // Relay containers should have their controls and timer setting. For 
     // time set, use hh::mm::ss for start, and hh::mm for duration.
@@ -154,6 +160,7 @@
     const OTAURL = `${URLprotocol}://${URLbody}/OTACheck`; 
     const logURL = `${URLprotocol}://${URLbody}/getLog`;
     const webSktURL = `ws://${URLbody}/ws`;
+    // const webSktURL = "ws://greenhouse.local/ws"; // Testing only
 
     // Elements
     const OTAdisp = document.getElementById("otaUpd");
@@ -181,6 +188,7 @@
     let Flags = {SKTconn:false, openLog:true};
 
     // Other
+    const maxID = 255; // Used to reset ID num to 0 when this value is reached.
     const logDelim = ';';
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
@@ -270,7 +278,9 @@
             ele.classList.remove("badRange")
             ele.style.backgroundColor = "rgb(0, 224, 27)";
             return true;
+
         } else {
+
             ele.classList.add("badRange");
             if (!isCelcius) {
                 window.alert(`${((val * 1.8) + 32).toFixed(1)} out of range ` +
@@ -330,8 +340,8 @@
     // relay command, and both the relay and alert setting commands. Pass
     // null if non-exist. Can be used for the majority of containers since
     // the naming convention is cookie-cutter. Builds and returns container.
-    let buildCon = (name, re, reSet, altSet, darkSet, reCont, reTimer, 
-        ranges) => {
+    let buildCon = (name, re, reSet, altSet, darkSet, integ, gain, reCont, 
+        reTimer, ranges) => {
         
         // ATTENTION: Read only will consist of data reported by ESP. It
         // will show for example, temperature, relay, and alert settings.
@@ -344,7 +354,7 @@
         if (re) { // Relay selection. If exists, builds boxes.
             RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-            INP[`${name}ReAtt`] = new inputBuild(ranges.re, "input", "Plug", 
+            INP[`${name}ReAtt`] = new inputBuild(ranges.re, "input", "Plug #", 
                 true, ["smallItem"], `${name}Re`, ['1', '2', '3', '4', "NONE"], 
                 {255: "NONE"}, () => {
                     
@@ -358,8 +368,9 @@
 
                 if (QC(reNum, ranges.re, `${name}ReAtt`)) {
 
-                    // IAW ESP32 bitwise protocol, adjust value to send.
-                    let output = reNum; // Set in the lower 4 bits.
+                // IAW ESP32 bitwise protocol, adjust value to send.
+                    let output = reNum & 0xF; // Set in the lower 4 bits.
+
                     switch (name) {
                         case "temp": // No action required, passes 0.
                         break;
@@ -380,11 +391,11 @@
 
         if (reSet) { // Relay setting condition and value.
             INP[`${name}ReLTGT`] = new inputBuild(ranges.reCond, "input", 
-                "Plug Cond", false, ["smallItem"], `${name}ReCond`, 
+                "Plug condition", false, ["smallItem"], `${name}ReCond`, 
                 ["Less Than", "Gtr Than", "NONE"], null, null);
 
             INP[`${name}ReSetAdj`] = new inputBuild(ranges.reSet, "input", 
-                `Plug ${name}`, true, ["smallItem"], `${name}ReVal`, null, 
+                `Plug ${name} value`, true, ["smallItem"], `${name}ReVal`, null, 
                 null, () => {
                 
                 const cond = document.getElementById(`${name}ReLTGTHidden`)
@@ -407,25 +418,25 @@
                 if (QC(cond, ranges.reCond, `${name}ReLTGT`) &&
                     QC(val, ranges.reSet, `${name}ReSetAdj`, name === "temp")) {
 
-                    // IAW ESP32 bitwise protocol, adjust value to send.
+                    // IAW ESP32 bitwise protocol, adjust value to send. 
                     let output = 0; // init to 0.
 
-                    switch (name) {
+                    switch (name) { // Soil has no relay.
                         case "temp": 
                         output |= (1 << 25); // 1 for temperature
-                        output |= (cond << 16); 
-                        output |= val;
+                        output |= ((cond & 0b11) << 16); // 2 bit max.
+                        output |= (val & 0xFFFF); // Ensure only lower 16-bits
                         break;
 
-                        case "hum": // No action req, passes 0.
-                        output |= (cond << 16);
-                        output |= val;
+                        case "hum": // No sensor action req, passes 0.
+                        output |= ((cond & 0b11) << 16); // 2 bit max.
+                        output |= (val & 0xFFFF); // only lower 16-bits.
                         break;
 
                         case "light": 
                         output |= (1 << 28); // 1 for photoresistor
-                        output |= (cond << 24);
-                        output |= val;
+                        output |= ((cond & 0b11) << 24);
+                        output |= (val & 0x0FFF);
                         break;
                     }
 
@@ -438,12 +449,12 @@
             RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
             INP[`${name}AltLTGT`] = new inputBuild(ranges.altCond, "input", 
-                "Alert Cond", false, ["smallItem"], `${name}AltCond`, 
+                "Alert condition", false, ["smallItem"], `${name}AltCond`, 
                 ["Less Than", "Gtr Than", "NONE"], null, null);
 
             INP[`${name}AltSetAdj`] = new inputBuild(ranges.altSet, "input", 
-                `Alert ${name}`, true, ["smallItem"], `${name}AltVal`, null, 
-                null, () => {
+                `Alert ${name} value`, true, ["smallItem"], `${name}AltVal`, 
+                null, null, () => {
 
                 const cond = document.getElementById(`${name}AltLTGTHidden`)
                     .value; // Alert condition.
@@ -472,19 +483,19 @@
                     switch (name) {
                         case "temp": 
                         output |= (1 << 25); // 1 for temperature
-                        output |= (cond << 16); 
-                        output |= val;
+                        output |= ((cond & 0b11) << 16); // 2 bit max.
+                        output |= (val & 0xFFFF); // lower 16 bits.
                         break;
 
                         case "hum": // No action req, passes 0.
-                        output |= (cond << 16);
-                        output |= val;
+                        output |= ((cond & 0b11) << 16); // 2 bit max.
+                        output |= (val & 0xFFFF); // lower 16 bits.
                         break;
 
                         case "light": 
                         output |= (1 << 28); // 1 for photoresistor
-                        output |= (cond << 24);
-                        output |= val;
+                        output |= ((cond & 0b11) << 24); // 2 bit max.
+                        output |= (val & 0x0FFF); // lower 16 bits.
                         break;
                     }
 
@@ -507,13 +518,47 @@
                         darkSet.callBack);
 
                     if (QC(val, ranges.darkSet, `${name}DarkSet`)) {
-
-
-
-                        socket.send(`${cmd}/${val}/${ID}`);
+                        let output = val & 0x00FFF000; // Nothing else req.
+                        socket.send(`${cmd}/${output}/${ID}`);
                     }
                 }
             )
+        }
+
+        if (integ) {
+
+            RO[`${name}Int`] = new RObuild("div", "Integration Time: ", 
+                ["smallItem", "span4"]);
+
+            INP[`${name}Astep`] = new inputBuild(ranges.astep, "input",
+                "Integration step", false, ["smallItem"], "astep", null,
+                null, null
+            );
+
+            INP[`${name}Atime`] = new inputBuild(ranges.atime, "input",
+                "Integration time", true, ["smallItem"], "atime", null,
+                null, () => {
+
+                const display = document.getElementById(`${name}Int`);
+                const ASTEP = document.getElementById(`${name}Astep`).value;
+                const ATIME = document.getElementById(`${name}Atime`).value;
+                const cmd = convert(integ.cmd);
+                const ID = getID(defResp, {"astep": ASTEP, "atime": ATIME}, 
+                    integ.callBack);
+
+                
+                // COntinue working on the adjustmnet bar for integration. 
+                // Before that, add + and - buttons along with range bar
+                // for fine adjustments.
+
+
+
+                }
+            );
+        }
+
+        if (gain) {
+
         }
 
         if (reCont) { // Relay control
@@ -528,8 +573,8 @@
         // Once all selection have been built, build expan button and
         // adjustment bar.
         RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
-        INP[`${name}ConAdj`] = new inputBuild(null, "div", "Adjust", 
-            false, ["smallItem", "span3"], null, null, null);
+        // INP[`${name}ConAdj`] = new inputBuild(null, "div", "Adjust", 
+        //     false, ["smallItem", "span3"], null, null, null);
 
         return new eleBuild(`${name}Con`, RO, INP); // Return object.
     }
@@ -563,12 +608,11 @@
 
         let append = (ele) => {
             document.getElementById(ID).appendChild(ele);
-            Expansions[ID][idx++] = ele.id;
+            Expansions[ID].push(ele.id);
         }
 
         if (button.innerText === "Expand") {
             Expansions[ID] = []; // Clear before use.
-            let idx = 0; // Used for expansion elements.
 
             Object.keys(inp).forEach(ele => {
                 const data = inp[ele];
@@ -591,9 +635,19 @@
                     e.classList.add(cls);
                 });
 
-                // Only set listeners if element type is input.
-                if (data.eleType === "input") addListen(e, hidden, ID, data);
+                // input listeners will link the adjustment bar with the 
+                // input box for dynamic value display.
+                if (data.eleType === "input") addListener(e, hidden, ID, data);
             });
+
+            // For input adjustment tools.
+            let adj = document.createElement("div");
+            adj.innerText = "Adjustments";
+            adj.id = `${ID}Adj`;
+            adj.classList.add("span4");
+            adj.classList.add("smallItem");
+            adj.classList.add("adjCon"); // Gives grid within as well.
+            append(adj);
 
             button.innerText = "Contract"; // acts as a toggle and display.
 
@@ -647,10 +701,9 @@
 
             // ESP rules dictate that temp is passed in C multiplied by 100 for
             // float point precision. 
-            if (contID === "tempCon") { 
-                ele.value = isCelcius ? 
-                    Number(allData[data.dataPtr] / 100).toFixed(1) :
-                    Number(((allData[data.dataPtr] / 100) * 1.8) + 32).toFixed(1);
+            if (contID === "tempCon") {ele.value = isCelcius ? 
+                Number(allData[data.dataPtr] / 100).toFixed(1) :
+                Number(((allData[data.dataPtr] / 100) * 1.8) + 32).toFixed(1);
             } else {
                 ele.value = allData[data.dataPtr];
             }
@@ -676,10 +729,21 @@
         return actual;
     }
 
-    let addListen = (disp, actual, ID, data) => {
+    let addListener = (disp, hidden, ID, data) => {
+
+        let adjVals = (adjVal) => {
+            if (hidden) (hidden.value = adjVal);
+
+            if (data.rangeMap != null) { // Use range map if included.
+                disp.value = data.rangeMap[adjVal];
+            } else {
+                disp.value = adjVal;
+            }
+        }
         
+        // When an input is focused, It takes ownership of the adjustment bar.
         disp.addEventListener("focus", () => {
-            const adj = document.getElementById(`${ID}Adj`);
+            
             let min = data.ranges.min;
             let max = data.ranges.max;
             let step = data.ranges.step;
@@ -688,25 +752,59 @@
                 !isCelcius) { // Convert to F if set, before use.
                 min = (min * 1.8) + 32;
                 max = (max * 1.8) + 32;
-                step = 1;
+                step = 1; // smaller step size is only dedicated to celcius.
             }
 
-            adj.innerHTML = `<input id="${ID}AdjBar" type="range" min="${min}" 
-                max="${max}" step="${step}">`;
-
+            const adj = document.getElementById(`${ID}Adj`);
+            adj.innerHTML = `<input id="${ID}AdjBar" type="range">`;
+            
+            // Specify params for adjustment bar.
             const AdjBar = document.getElementById(`${ID}AdjBar`);
+            AdjBar.classList.add("span4");
+            AdjBar.style.width = "300px"; 
+            AdjBar.min = min;
+            AdjBar.max = max;
+            AdjBar.step = step;
 
-            AdjBar.addEventListener("input", () => {
-                if (actual) (actual.value = AdjBar.value);
-                
-                if (data.rangeMap != null) {
-                    disp.value = data.rangeMap[AdjBar.value];
-                } else {
-                    disp.value = AdjBar.value;
-                }
+            AdjBar.addEventListener("input", () => adjVals(AdjBar.value));
+
+            if (ID === "specCon") {
+                AdjBar.addEventListener("change", () => {
+                    const ASTEP = document.getElementById("specAstep");
+                    const ATIME = document.getElementById("specAtime");
+                    const INTEG_DISP = document.getElementById("specInt");
+                    const intTime = 
+                        (ASTEP.value + 1) * (ATIME.value + 1) * 0.00278;
+
+                    console.log(`ATIME ${ATIME.value}, ASTEP ${ASTEP.value}`);
+
+                    // INTEG_DISP.innerText = 
+                    //     `Integration time: ${intTime.toFixed(2)} ms`;
+                });
+            }
+
+            // Specify params for buttons.
+            ['-', '+'].forEach(label => { // Increases adjustment granularity.
+                const but = document.createElement("button");
+                but.classList.add("span2");
+                but.id = `${ID}${label}`; // Should be like tempCon+
+                but.innerText = `${label} ${step}`;
+                adj.appendChild(but);
+
+                // Event listener directly controls the adjbar, which then 
+                // Adjusts the box value.
+                but.addEventListener("click", () => {
+
+                    if (label === '+') {
+                        AdjBar.value = Number(AdjBar.value) + Number(step);
+                    } else {
+                        AdjBar.value = Number(AdjBar.value) - Number(step);
+                    }
+                    
+                    adjVals(AdjBar.value);
+                });
             });
 
-            AdjBar.style.width = "225px"; // 3/4 of the grid width.
 
             if (data.rangeMap != null) { // Set upon expansion.
                 AdjBar.value = data.rangeMap.indexOf(disp.value);
@@ -733,6 +831,7 @@
     const getID = (callback1 = null, KVs = null, callback2 = null) => {
         const id = idNum++;
         requestIDs[id] = [callback1, KVs, callback2]; 
+        idNum = (idNum >= maxID) ? 0 : idNum; // Reset to 0 if == max.
         return id;
     }
 
@@ -1127,7 +1226,7 @@
         handleTempHum();
         handleSoil();
         handlePhoto();
-        handleSpec();
+        // handleSpec();
 
         if (data.newLog === 1) getLog(); // Gets log if avail
     }
@@ -1249,7 +1348,8 @@
     const tempCon = buildCon("temp", 
         new cmdBuild("ATTACH_RELAYS", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum),
-        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null,
+        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null, null, 
+        null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(-30, 60, 0.5), // Celcius
@@ -1261,7 +1361,8 @@
     const humCon = buildCon("hum", 
         new cmdBuild("ATTACH_RELAYS", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum),
-        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null,
+        new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null, null,
+        null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 99, 1), 
@@ -1271,49 +1372,59 @@
     );
 
     const soil1Con = buildCon("soil1", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 10)
+            "altSet": new rangeBuild(1, 4094, 1)
         }
     );
 
     const soil2Con = buildCon("soil2", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 10)
+            "altSet": new rangeBuild(1, 4094, 1)
         }
     );
 
     const soil3Con = buildCon("soil3", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 10)
+            "altSet": new rangeBuild(1, 4094, 1)
         }
     );
 
     const soil4Con = buildCon("soil4", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null,
+        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
         {
             "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 10)
+            "altSet": new rangeBuild(1, 4094, 1)
         }
     );
 
     const lightCon = buildCon("light", 
         new cmdBuild("ATTACH_RELAYS", handlePhoto),
         new cmdBuild("SET_LIGHT", handlePhoto), null, 
-        new cmdBuild("SET_LIGHT", handlePhoto), null, null,
+        new cmdBuild("SET_LIGHT", handlePhoto), null, null, null, null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
-            "reSet": new rangeBuild(1, 4094, 10), 
-            "darkSet": new rangeBuild(1, 4094, 10), 
+            "reSet": new rangeBuild(1, 4094, 1), 
+            "darkSet": new rangeBuild(1, 4094, 1), 
         }
     );
 
-    const re1Con = buildCon("re1", null, null, null, null, 
+    const specCon = buildCon("spec", null, null, null, null, 
+        new cmdBuild("SET_SPEC_INTEGRATION_TIME", handleSpec),
+        new cmdBuild("SET_SPEC_GAIN"), null, null,
+        {
+            "astep": new rangeBuild(0, 65534, 1),
+            "atime": new rangeBuild(0, 255, 1),
+            "again": new rangeBuild(0, 10, 1)
+        }
+    );
+
+    const re1Con = buildCon("re1", null, null, null, null, null, null,
         new cmdBuild("RELAY_1", handleRelays),
         new cmdBuild("RELAY_1_TIMER_ON", handleRelays),
         {
@@ -1329,6 +1440,7 @@
         buildRO(soil3Con);
         buildRO(soil4Con);
         buildRO(lightCon);
+        buildRO(specCon);
     }
 
     const addListeners = () => {
@@ -1339,11 +1451,12 @@
     document.getElementById(soil3Con.buttonID).onclick = () => expand(soil3Con);
     document.getElementById(soil4Con.buttonID).onclick = () => expand(soil4Con);
     document.getElementById(lightCon.buttonID).onclick = () => expand(lightCon);
+    document.getElementById(specCon.buttonID).onclick = () => expand(specCon);
     }
 
     let loadPage = () => {
         buildContainers();
-        buildSpec();
+        // buildSpec();
         addListeners();
         initWebSocket(); // Inits the websocket protocol.
         getLog(); // Gets the log when loading the page.

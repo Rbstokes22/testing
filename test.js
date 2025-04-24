@@ -95,15 +95,52 @@ let decodeLt = (val) => {
     console.log(`T-${tp} C-${c} D-${dk} P-${ph} RAW-${val}`);
 }
 
-let ele = function(ID, RO) {
-    this.ID = ID;
-    this.RO = RO;
-    return this;
+let encode = (sensor, ctlType, cond, val) => { // Temp, negative nums.
+    let ret = 0;
+    if (sensor != 0) ret |= (sensor << 25);
+    if (ctlType != 0) ret |= (ctlType << 24);
+    if (cond != 0) ret |= (cond << 16);
+    ret |= (val & 0xFFFF);
+    return ret;
 }
 
-const a = new ele(ID = 55, RO = {'a': 74});
+let decode = (val) => { // Temp, negative nums.
+    const sensor = (val >> 25) & 0b1;
+    const ctlType = (val >> 24) & 0b1;
+    const cond = (val >> 16) & 0b11;
+    let preVal = val & 0xFFFF;
+    preVal = (preVal > 32768) ? preVal - 65536 : preVal;
 
-console.log(a.ID);
+    console.log(`S-${sensor} CT-${ctlType} CD-${cond} Val-${preVal} RAW-${val}`);
+}
+
+let getInt = (astep, atime) => {
+    return (astep + 1) * (atime + 1) * .00278;
+}
+
+let getAstep = (atime, desVal) => {
+    return desVal / 0.00278 / (atime + 1) - 1;
+}
+
+let getAtime = (astep, desVal) => {
+    return desVal / 0.00278 / (astep + 1) - 1;
+}
+
+let getIntCode = (astep, atime) => {
+    let ret = 0;
+    ret |= (astep << 8);
+    ret |= atime;
+    console.log(ret);
+}
+
+getIntCode(718, 29);
+getIntCode(650, 32);
+getIntCode(599, 29);
+
+
+
+
+
 
 
 

@@ -147,7 +147,7 @@ const process = (CMD, clientID) => {
 
             case "ATTACH_RELAYS": {
             let device = (val >> 4) & 0b1111;
-            let reNum = val % 0b1111;
+            let reNum = val & 0b1111;
 
             switch (device) {
                 case 0: // Temp
@@ -172,6 +172,7 @@ const process = (CMD, clientID) => {
                 let control = (val >> 24) & 0b1;
                 let condition = (val >> 16) & 0b11;
                 let value = val & 0xFFFF;
+                value = (value > 32768) ? value - 65536 : value;
                 
                 if (sensor === 1) {
                     
