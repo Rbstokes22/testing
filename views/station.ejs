@@ -73,21 +73,14 @@
             padding: 20px;
         }
 
-        /* #specCon {
+        #specDisp {
             display: grid;
             grid-template-columns: 60px auto;
             grid-template-rows: auto;
             gap: 5px;
             align-self: start;
             white-space: nowrap;
-        } */
-
-        /* #specDisp {
-            grid-column: span 2;
-            font-size: 1em;
-            border: 2px solid black;
-            padding: 2px;
-        } */
+        }
 
         .span2 {grid-column: span 2;}
         .span3 {grid-column: span 3;}
@@ -133,15 +126,7 @@
 
     <script>
 
-    // Removing specCon, and building it using the buildcon. Implemeneted a
-    // push button control for granularity, which works as advertise. Next,
-    // continue building specCon and introduce the integration display as well.
-    // This will probably need another div inside, that is setup like the
-    // former specCon, and can display each of the values.
-
-    // Change the main specCon display to show the % of max for easier client
-    // understanding, or maybe have counts and %. This will make calibration
-    // much easier to understand.
+    // SpecCon is built and working. 
 
     // Relay containers should have their controls and timer setting. For 
     // time set, use hh::mm::ss for start, and hh::mm for duration.
@@ -266,6 +251,10 @@
         return this;
     }
 
+    let makeNum = (ID) => { // Used to ref ID, and return Number of the value.
+        return Number(document.getElementById(ID).value);
+    }
+
     // Checks the value and that it is within the specified range. Changes BG
     // to green and returns true upon success, and upon failure, alerts, and
     // changes the BG to red returning false.
@@ -295,18 +284,15 @@
     }
 
     let buildSpec = () => {
-        
-        const parent = document.getElementById("specCon");
-        const disp = document.createElement("div");
-        disp.id = "specDisp";
-        disp.innerText = "Click/hover color for data";
-        parent.appendChild(disp);
+        const disp = document.getElementById("spec"); // Primary display bar
+        const parent = document.getElementById("specDisp");
 
         let updDisp = (color, ele) => {
-            disp.innerText = // Updates the display to show color and counts.
-                    `${color.toUpperCase()} at ${ele.value} CTS`;
+            disp.innerText = 
+                `${color.toUpperCase()} at ${ele.value}/65535 counts or ` +
+                `${(ele.value/655.35).toFixed(2)}% of max`;
         }
-            
+
         Object.keys(COLORS).forEach(color => {
             const e = document.createElement("div");
             const lab = document.createElement("div"); // Label
@@ -349,7 +335,16 @@
 
         let RO = {}, INP = {}; // Read only and Input.
 
-        RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); // Pri
+        if (name === "spec") {
+            RO[`${name}Disp`] = new RObuild("div", null, 
+                ["smallItem", "span4"]);
+
+            RO[name] = new RObuild("div", "Spectral Info Display", 
+                ["smallItem", "span4"]); // Primary display for info
+
+        } else {
+            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); 
+        }
 
         if (re) { // Relay selection. If exists, builds boxes.
             RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
@@ -359,8 +354,7 @@
                 {255: "NONE"}, () => {
                     
                 const cmd = convert(re.cmd); 
-                const reNum = document.getElementById(`${name}ReAttHidden`)
-                    .value; // Relay number
+                const reNum = makeNum(`${name}ReAttHidden`);
 
                 // Updates the diplay using ESP32 protocol.
                 const disp = (reNum == 4 ) ? RE_OFF : reNum;
@@ -398,11 +392,9 @@
                 `Plug ${name} value`, true, ["smallItem"], `${name}ReVal`, null, 
                 null, () => {
                 
-                const cond = document.getElementById(`${name}ReLTGTHidden`)
-                    .value; // Relay condition
-
-                const cmd = convert(reSet.cmd);
-                let val = document.getElementById(`${name}ReSetAdj`).value;
+                const cond = makeNum(`${name}ReLTGTHidden`); // relay condition.
+                const cmd = convert(reSet.cmd); // Returns number.
+                let val = makeNum(`${name}ReSetAdj`);
 
                 // If temperature, ensures value is in celcius, and mult
                 // float val by 100 IAW ESP req.
@@ -456,11 +448,9 @@
                 `Alert ${name} value`, true, ["smallItem"], `${name}AltVal`, 
                 null, null, () => {
 
-                const cond = document.getElementById(`${name}AltLTGTHidden`)
-                    .value; // Alert condition.
-
-                let val = document.getElementById(`${name}AltSetAdj`).value;
-                const cmd = convert(altSet.cmd) + Number(cond);
+                const cond = makeNum(`${name}AltLTGTHidden`); // alert cond.
+                let val = makeNum(`${name}AltSetAdj`);
+                const cmd = convert(altSet.cmd); // returns number.
 
                 // If temperature, ensures value is in celcius, and mult
                 // float val by 100 IAW ESP req.
@@ -512,8 +502,8 @@
             INP[`${name}DarkSet`] = new inputBuild(ranges.darkSet, "input",
                 "Dark value", true, ["smallItem"], "darkVal", null, null,
                 () => {
-                    const cmd = convert(darkSet.cmd);
-                    const val = document.getElementById(`${name}DarkSet`).value;
+                    const cmd = convert(darkSet.cmd); // returns number.
+                    const val = makeNum(`${name}DarkSet`);
                     const ID = getID(defResp, {"darkVal": val}, 
                         darkSet.callBack);
 
@@ -525,40 +515,50 @@
             )
         }
 
-        if (integ) {
-
-            RO[`${name}Int`] = new RObuild("div", "Integration Time: ", 
-                ["smallItem", "span4"]);
+        if (integ) { // Spectal integration ATIME + 1 * ASTEP + 1 * 0.00278.
 
             INP[`${name}Astep`] = new inputBuild(ranges.astep, "input",
-                "Integration step", false, ["smallItem"], "astep", null,
+                "Integration (step)", false, ["smallItem"], "astep", null,
                 null, null
             );
 
             INP[`${name}Atime`] = new inputBuild(ranges.atime, "input",
-                "Integration time", true, ["smallItem"], "atime", null,
+                "Integration (time)", true, ["smallItem"], "atime", null,
                 null, () => {
 
-                const display = document.getElementById(`${name}Int`);
-                const ASTEP = document.getElementById(`${name}Astep`).value;
-                const ATIME = document.getElementById(`${name}Atime`).value;
-                const cmd = convert(integ.cmd);
+                const ASTEP = makeNum(`${name}Astep`);
+                const ATIME = makeNum(`${name}Atime`);
+                const cmd = convert(integ.cmd); // Returns number.
                 const ID = getID(defResp, {"astep": ASTEP, "atime": ATIME}, 
                     integ.callBack);
 
-                
-                // COntinue working on the adjustmnet bar for integration. 
-                // Before that, add + and - buttons along with range bar
-                // for fine adjustments.
+                if (QC(ASTEP, ranges.astep, `${name}Astep`) && 
+                    QC(ATIME, ranges.atime, `${name}Atime`)) {
 
-
-
+                    let output = ATIME & 0xFF; // Establish Atime on init.
+                    output |= ((ASTEP & 0xFFFF) << 8);
+                    socket.send(`${cmd}/${output}/${ID}`);
+                }
                 }
             );
         }
 
-        if (gain) {
+        if (gain) { // Spectral gain.
 
+            INP[`${name}Again`] = new inputBuild(ranges.again, "input",
+                "Spectral Gain", true, ["smallItem"], "again", 
+                ["0.5x", "1x", "2x", "4x", "8x", "16x", "32x", "64x", "128x",
+                    "256x", "512x"], null, () => {
+
+                const AGAIN = makeNum(`${name}Again`);
+                const cmd = convert(gain.cmd);
+                const ID = getID(defResp, {"again": AGAIN}, gain.callBack);
+
+                if (QC(AGAIN, ranges.again, `${name}Again`)) {
+                    socket.send(`${cmd}/${AGAIN}/${ID}`);
+                }
+                }
+            );
         }
 
         if (reCont) { // Relay control
@@ -654,6 +654,12 @@
         } else if (button.innerText === "Contract") { // Remove expanded eles.
             Expansions[ID].forEach(id => document.getElementById(id).remove());
             button.innerText = "Expand";
+
+            if (container.parentID === "specCon") {
+                const integ = document.getElementById("spec");
+                integ.innerText = "Spectral Info Display";
+                integ.classList.remove("selected");
+            }
         }
     }
 
@@ -731,13 +737,25 @@
 
     let addListener = (disp, hidden, ID, data) => {
 
-        let adjVals = (adjVal) => {
+        // The adjusted value is passed and the display value will be adjusted
+        // as well as the hidden (true) value if a range map is passed.
+        let adjVals = (adjVal) => { 
+
             if (hidden) (hidden.value = adjVal);
 
-            if (data.rangeMap != null) { // Use range map if included.
-                disp.value = data.rangeMap[adjVal];
-            } else {
-                disp.value = adjVal;
+            // Adjust the display value using the range map or the adj value.
+            disp.value = (data.rangeMap === null) ? 
+                adjVal : data.rangeMap[adjVal];
+
+            if (ID === "specCon") { // Allow display of integration time.
+                const ASTEP = makeNum("specAstep");
+                const ATIME = makeNum("specAtime");
+                const AGAIN = makeNum("specAgain");
+                const DISP = document.getElementById("spec"); // main element
+                const intTime = (ASTEP + 1) * (ATIME + 1) * 0.00278;
+
+                DISP.innerText = `Integration Time: ${intTime.toFixed(1)} ms`;
+                DISP.classList.add("selected");
             }
         }
         
@@ -767,21 +785,6 @@
             AdjBar.step = step;
 
             AdjBar.addEventListener("input", () => adjVals(AdjBar.value));
-
-            if (ID === "specCon") {
-                AdjBar.addEventListener("change", () => {
-                    const ASTEP = document.getElementById("specAstep");
-                    const ATIME = document.getElementById("specAtime");
-                    const INTEG_DISP = document.getElementById("specInt");
-                    const intTime = 
-                        (ASTEP.value + 1) * (ATIME.value + 1) * 0.00278;
-
-                    console.log(`ATIME ${ATIME.value}, ASTEP ${ASTEP.value}`);
-
-                    // INTEG_DISP.innerText = 
-                    //     `Integration time: ${intTime.toFixed(2)} ms`;
-                });
-            }
 
             // Specify params for buttons.
             ['-', '+'].forEach(label => { // Increases adjustment granularity.
@@ -822,7 +825,7 @@
 
     // Returns the index of the command, this is used with esp32 ssocket
     // command as argument 1.
-    const convert = (CMD) => CMDS.indexOf(CMD);
+    const convert = (CMD) => Number(CMDS.indexOf(CMD));
 
     // Requires callback function for a successful update, the key/value
     // pairs with the key being the allData JSON key, and its value to
@@ -1200,13 +1203,16 @@
             // the others.
             if (color === maxClr || color === "clear") { // d
                 document.getElementById(color).innerText = 
-                    `${(counts[color] / 655.35).toFixed(2)}% Max`;
+                    `${(counts[color] / 655.35).toFixed(2)}% of Max`;
             } else { // Remove text from rest.
                 document.getElementById(color).innerText = "";
             }
 
             bar.style.width = `${width}px`;
         });
+
+        document.getElementById("specCon").style.backgroundColor =
+            sensUpBg[allData.specUp];
     }
 
     const handleRelays = () => {
@@ -1226,7 +1232,7 @@
         handleTempHum();
         handleSoil();
         handlePhoto();
-        // handleSpec();
+        handleSpec();
 
         if (data.newLog === 1) getLog(); // Gets log if avail
     }
@@ -1456,7 +1462,7 @@
 
     let loadPage = () => {
         buildContainers();
-        // buildSpec();
+        buildSpec();
         addListeners();
         initWebSocket(); // Inits the websocket protocol.
         getLog(); // Gets the log when loading the page.
