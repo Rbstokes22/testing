@@ -9,6 +9,11 @@
         button {
             border: 2px solid black;
             border-radius: 5px;
+            min-height: 3em;
+        }
+
+        input {
+            height: 2em;
         }
 
         body {
@@ -43,7 +48,7 @@
         }
 
         .item {
-            background-color: rgb(124, 124, 124);
+            background-color: rgb(128, 251, 255);
             padding: 20px;
             text-align: left;
             border: 2px solid black;
@@ -55,13 +60,18 @@
             text-align: left;
         }
 
-        #tempCon, #humCon, #soil1Con, #soil2Con, #soil3Con, #soil4Con,
-        #lightCon, #specCon, .adjCon {
+        .con {
             display: grid;
             grid-template-columns: repeat(4, minmax(75px, 1fr));
             grid-template-rows: auto;
             gap: 10px;
             align-self: start; /* prevent stretching */
+        }
+
+        .conLab {
+            color: rgb(255, 230, 0);
+            font-weight: 900;
+            background-color: rgb(0, 26, 255);
         }
 
         .valButton {
@@ -80,6 +90,8 @@
             gap: 5px;
             align-self: start;
             white-space: nowrap;
+            background-color: rgb(0, 0, 0);
+            color: rgb(255, 255, 255);
         }
 
         .span2 {grid-column: span 2;}
@@ -90,10 +102,12 @@
             background-color: rgb(196, 0, 0);
             color: white;
         }
+        
         .dark {
             background-color: black;
             color: white;
         }
+        .blinker {background-color: red;}
 
     </style>
 </head>
@@ -108,16 +122,16 @@
         </div>
         <div id="tempCon" class="item"></div>
         <div id="humCon" class="item"></div>
+        <div id="soil0Con" class="item"></div>
         <div id="soil1Con" class="item"></div>
         <div id="soil2Con" class="item"></div>
         <div id="soil3Con" class="item"></div>
-        <div id="soil4Con" class="item"></div>
         <div id="lightCon" class="item"></div>
         <div id="specCon" class="item"></div>
-        <div id="re1Con" class="item">RE1</div>
-        <div id="re2Con" class="item">RE2</div>
-        <div id="re3Con" class="item">RE3</div>
-        <div id="re4Con" class="item">RE4</div>
+        <div id="re0Con" class="item"></div>
+        <div id="re1Con" class="item"></div>
+        <div id="re2Con" class="item"></div>
+        <div id="re3Con" class="item"></div>
     </div> <!-- contains all periph containers-->
     
     <div id="log"></div>
@@ -126,10 +140,9 @@
 
     <script>
 
-    // SpecCon is built and working. 
-
-    // Relay containers should have their controls and timer setting. For 
-    // time set, use hh::mm::ss for start, and hh::mm for duration.
+    // Work on first changing the soil to go from soil1 to soil0, the 
+    // display can still say 1 or whatever. Once good, do the same for relays
+    // as well as continute building the relay containers.
 
     // Finally build the main container to be able to select T or F, report
     // time, clear averages option, trends, time, and firmware updates. The
@@ -151,14 +164,14 @@
     const OTAdisp = document.getElementById("otaUpd");
 
     // Key names are colors that correspond with the JSON socket data. arr[0]
-    // is if it is light or dark, and affect text color, arr[1] is the display,
-    // and arr[2] is the css color.
+    // is the wavelength, arr[1] is the display bar color, and arr[2] is the 
+    // is if the color is 0 (light) or 1 (dark), to adjust background text.
     const COLORS = {
-        "violet": ["415nm", "violet"], "indigo": ["445nm", "indigo"],
-        "blue": ["485nm", "blue"], "cyan": ["515nm", "cyan"],
-        "green": ["555nm", "green"], "yellow": ["590nm", "yellow"],
-        "orange": ["630nm", "orange"], "red": ["680nm", "red"],
-        "nir": ["NIR", "rgb(140, 0, 0)"], "clear": ["Clear", "white"]
+        "violet": ["415nm", "violet", 1], "indigo": ["445nm", "indigo", 1],
+        "blue": ["485nm", "blue", 1], "cyan": ["515nm", "cyan", 0],
+        "green": ["555nm", "green", 1], "yellow": ["590nm", "yellow", 0],
+        "orange": ["630nm", "orange", 0], "red": ["680nm", "red", 1],
+        "nir": ["NIR", "rgb(140, 0, 0)", 1], "clear": ["Clear", "white", 0]
     };
     
     const MAX_SPEC_PX = 250; // Max color count pixels.
@@ -186,8 +199,7 @@
         "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", "RELAY_CTRL", 
         "RELAY_TIMER", "ATTACH_RELAYS", "SET_TEMPHUM", "SET_SOIL", "SET_LIGHT", 
         "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", "CLEAR_AVERAGES", 
-        "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"
-    ];
+        "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
 
     // Declare all vars here, to save space. idNum is used to keep track of
     // socket commands, allData contains all sensor data, and log contains
@@ -283,20 +295,30 @@
         }
     }
 
-    let buildSpec = () => {
+    let timeStr = (seconds) => {
+        const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+        const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+        const s = (seconds % 60).toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
+    let buildSpec = () => { // spectral display in specCon.
         const disp = document.getElementById("spec"); // Primary display bar
         const parent = document.getElementById("specDisp");
 
+        const fontColor = ["black", "white"]; // Used for color bars.
+
         let updDisp = (color, ele) => {
             disp.innerText = 
-                `${color.toUpperCase()} at ${ele.value}/65535 counts or ` +
-                `${(ele.value/655.35).toFixed(2)}% of max`;
+                `${color.toUpperCase()} | ${ele.value}/65535 counts | ` +
+                `${(ele.value/655.35).toFixed(2)}%`;
         }
 
         Object.keys(COLORS).forEach(color => {
             const e = document.createElement("div");
             const lab = document.createElement("div"); // Label
             e.style.backgroundColor = `${COLORS[color][1]}`;
+            e.style.color = fontColor[COLORS[color][2]];
             lab.innerText = COLORS[color][0];
             e.id = color;
             // Add count and color data to display for click or mouseover .
@@ -322,12 +344,50 @@
         });
     }
 
+    let buildConLabel = (parent, name) => {
+        const label = document.createElement("input");
+        label.className = "smallItem span2 conLab";
+        const curVal = localStorage.getItem(`${name}Label`);
+        label.value = (curVal != null) ? curVal : "CUSTOM LABEL HERE";
+        label.onblur = () => localStorage.setItem(`${name}Label`, label.value);
+        parent.appendChild(label);
+    }
+
+    let buildRelayButtons = (container, reNum) => {
+        const Labs = ["OFF", "ON", "FORCE OFF", "FORCE RMV"];
+        const parent = document.getElementById(`${container.parentID}Buttons`);
+        const key = container.parentID.slice(0, 3);
+
+        Labs.forEach((but, idx) => { // Build each button functionality.
+            const b = document.createElement("button");
+            b.innerText = but;
+            b.id = `${container.parentID}But${idx}`; // Ex relay0ConBut0 = OFF
+            b.value = idx;
+            b.enabled = true;
+        
+            b.onclick = () => {
+                if (!b.enabled) return; // Block if button is disabled.
+                const cmd = convert("RELAY_CTRL");
+                const ID = getID(defResp, {[`${key}`]: Number(b.value)}, 
+                    handleRelays);
+
+                let output = ((reNum & 0xF) << 4); // Set renum to init
+                output |= (b.value & 0xF); // Set the control value.
+                
+
+                socket.send(`${cmd}/${output}/${ID}`);
+            }
+
+            parent.appendChild(b);
+        });
+    }
+
     // Build container. This is a sort of constructor that takes the name,
     // relay command, and both the relay and alert setting commands. Pass
     // null if non-exist. Can be used for the majority of containers since
     // the naming convention is cookie-cutter. Builds and returns container.
-    let buildCon = (name, re, reSet, altSet, darkSet, integ, gain, reCont, 
-        reTimer, ranges) => {
+    let buildCon = (name, re, reSet, altSet, darkSet, integ, gain, 
+        reTimer, ranges, includeLabel = false) => {
         
         // ATTENTION: Read only will consist of data reported by ESP. It
         // will show for example, temperature, relay, and alert settings.
@@ -335,16 +395,34 @@
 
         let RO = {}, INP = {}; // Read only and Input.
 
-        if (name === "spec") {
+        // Add the container class to give the grid attributes and allow input
+        // label.
+        const parent = document.getElementById(`${name}Con`);
+        parent.classList.add("con");
+        if (includeLabel) buildConLabel(parent, name);
+
+        // Special conditions for the main display/RO setup
+        if (name === "spec") { // Spectral display
+
             RO[`${name}Disp`] = new RObuild("div", null, 
                 ["smallItem", "span4"]);
 
             RO[name] = new RObuild("div", "Spectral Info Display", 
                 ["smallItem", "span4"]); // Primary display for info
 
-        } else {
+        } else if (name.includes("re")) { // Relay displays
+
+            RO[name] = new RObuild("div", `Plug #${Number(name[2]) + 1}`,
+                ["smallItem", "span4"]); // Displays the relay number
+
+            RO[`${name}ConButtons`] = new RObuild("div", "", 
+                ["smallItem", "span4", "con"]); // button display.
+
+        } else { // All other displays.
             RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); 
         }
+
+        // Building of the individual RO and Inputs.
 
         if (re) { // Relay selection. If exists, builds boxes.
             RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
@@ -358,9 +436,11 @@
 
                 // Updates the diplay using ESP32 protocol.
                 const disp = (reNum == 4 ) ? RE_OFF : reNum;
-                const ID = getID(defResp, {[`${name}Re`]: disp}, re.callBack);
-
+                
                 if (QC(reNum, ranges.re, `${name}ReAtt`)) {
+
+                    const ID = getID(defResp, {[`${name}Re`]: disp}, 
+                        re.callBack);
 
                 // IAW ESP32 bitwise protocol, adjust value to send.
                     let output = reNum & 0xF; // Set in the lower 4 bits.
@@ -403,12 +483,12 @@
                         (((val - 32) / 1.8).toFixed(2) * 100);
                 }
 
-                const ID = getID(defResp, 
-                    {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
-                    reSet.callBack);
-
                 if (QC(cond, ranges.reCond, `${name}ReLTGT`) &&
                     QC(val, ranges.reSet, `${name}ReSetAdj`, name === "temp")) {
+
+                    const ID = getID(defResp, 
+                        {[`${name}ReCond`]: cond, [`${name}ReVal`]: val}, 
+                        reSet.callBack);
 
                     // IAW ESP32 bitwise protocol, adjust value to send. 
                     let output = 0; // init to 0.
@@ -459,34 +539,33 @@
                             (((val - 32) / 1.8).toFixed(2) * 100);
                 }
 
-                const ID = getID(defResp, 
-                    {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
-                    altSet.callBack);
-
                 if (QC(cond, ranges.altCond, `${name}AltLTGT`) &&
                     QC(val, ranges.altSet, `${name}AltSetAdj`, 
                         name === "temp")) {
 
+                    const ID = getID(defResp, 
+                        {[`${name}AltCond`]: cond, [`${name}AltVal`]: val}, 
+                        altSet.callBack);
+
                     // IAW ESP32 bitwise protocol, adjust value to send.
-                    let output = (1 << 24); // Init for alert.
+                    let output = 0;
 
-                    switch (name) {
-                        case "temp": 
-                        output |= (1 << 25); // 1 for temperature
-                        output |= ((cond & 0b11) << 16); // 2 bit max.
-                        output |= (val & 0xFFFF); // lower 16 bits.
-                        break;
+                    if (name === "temp") {
+                        output |= (1 << 25); // 1 for temperature.
+                        output |= (1 << 24); // 1 for alert.
+                        output |= ((cond & 0b11) << 16); // Condition
+                        output |= (val & 0xFFFF); // Lower 16 bits is value.
 
-                        case "hum": // No action req, passes 0.
-                        output |= ((cond & 0b11) << 16); // 2 bit max.
-                        output |= (val & 0xFFFF); // lower 16 bits.
-                        break;
+                    } else if (name === "hum") {
+                        output |= (1 << 24); // 1 for alert.
+                        output |= ((cond & 0b11) << 16); // Condition
+                        output |= (val & 0xFFFF); // Lower 16 is value.
 
-                        case "light": 
-                        output |= (1 << 28); // 1 for photoresistor
-                        output |= ((cond & 0b11) << 24); // 2 bit max.
-                        output |= (val & 0x0FFF); // lower 16 bits.
-                        break;
+                    } else if (name.includes("soil")) {
+                        const sensNum = Number(name[4]); // Last char, soil(1)
+                        output |= ((sensNum & 0xF) << 20); // Sensor number
+                        output |= ((cond & 0b11) << 16); // Condition
+                        output |= (val & 0xFFFF); // Lower 16 is value.
                     }
 
                     socket.send(`${cmd}/${output}/${ID}`);  
@@ -504,10 +583,11 @@
                 () => {
                     const cmd = convert(darkSet.cmd); // returns number.
                     const val = makeNum(`${name}DarkSet`);
-                    const ID = getID(defResp, {"darkVal": val}, 
-                        darkSet.callBack);
 
                     if (QC(val, ranges.darkSet, `${name}DarkSet`)) {
+                        const ID = getID(defResp, {"darkVal": val}, 
+                            darkSet.callBack);
+
                         let output = val & 0x00FFF000; // Nothing else req.
                         socket.send(`${cmd}/${output}/${ID}`);
                     }
@@ -529,11 +609,12 @@
                 const ASTEP = makeNum(`${name}Astep`);
                 const ATIME = makeNum(`${name}Atime`);
                 const cmd = convert(integ.cmd); // Returns number.
-                const ID = getID(defResp, {"astep": ASTEP, "atime": ATIME}, 
-                    integ.callBack);
 
                 if (QC(ASTEP, ranges.astep, `${name}Astep`) && 
                     QC(ATIME, ranges.atime, `${name}Atime`)) {
+
+                    const ID = getID(defResp, {"astep": ASTEP, "atime": ATIME}, 
+                        integ.callBack);
 
                     let output = ATIME & 0xFF; // Establish Atime on init.
                     output |= ((ASTEP & 0xFFFF) << 8);
@@ -552,29 +633,87 @@
 
                 const AGAIN = makeNum(`${name}Again`);
                 const cmd = convert(gain.cmd);
-                const ID = getID(defResp, {"again": AGAIN}, gain.callBack);
 
                 if (QC(AGAIN, ranges.again, `${name}Again`)) {
+
+                    const ID = getID(defResp, {"again": AGAIN}, gain.callBack);
                     socket.send(`${cmd}/${AGAIN}/${ID}`);
                 }
                 }
             );
         }
 
-        if (reCont) { // Relay control
+        if (reTimer) { // Relay timer.
             RO[`${name}Stat`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
-        }
+            INP[`${name}ReHrSet`] = new inputBuild(ranges.reHour, "input",
+                "On Time (HH MM):", false, ["smallItem"], null, null, null, 
+                null);
 
-        if (reTimer) { // Relay timer.
+            INP[`${name}ReMinSet`] = new inputBuild(ranges.reMin, "input",
+                null, false, ["smallItem"], null, null, null, 
+                null);
 
+            INP[`${name}ReHrOff`] = new inputBuild(ranges.reHour, "input",
+                "Off Time (HH MM):", false, ["smallItem"], null, null, null, 
+                null);
+
+            INP[`${name}ReMinOff`] = new inputBuild(ranges.reMin, "input",
+                null, true, ["smallItem"], null, null, null, 
+                () => {
+
+                const cmd = convert(reTimer.cmd);
+                const onHr = makeNum(`${name}ReHrSet`);
+                const onMin = makeNum(`${name}ReMinSet`);
+                const offHr = makeNum(`${name}ReHrOff`);
+                const offMin = makeNum(`${name}ReMinOff`);
+
+                if (QC(onHr, ranges.reHour, `${name}ReHrSet`) &&
+                    QC(onMin, ranges.reMin, `${name}ReMinSet`) &&
+                    QC(offHr, ranges.reHour, `${name}ReHrOff`) &&
+                    QC(offMin, ranges.reMin, `${name}ReMinOff`)) {
+
+                    let output = 0;
+                    if (name.includes("re")) { // Ensures it is a relay.
+                        
+                        const reNum = Number(name[2]); // Last char, relay(1).
+                        const onTime = (onHr * 3600) + (onMin * 60);
+                        const offTime = (offHr * 3600) + (offMin * 60);
+                        let duration = (onTime < offTime) ? (offTime - onTime) :
+                            (86400 - onTime + offTime);
+
+                        duration = Math.floor(duration / 60); // s to min int.
+                        let ID = -1; // Will be used depending on values.
+
+                        if (onTime === offTime) { // Signal to remove timer.
+                            output |= ((99999 & 0x1FFFF) << 11); // bits 11-28
+                            ID = getID(defResp, 
+                                {[`re${reNum}TimerEn`]: 0, 
+                                 [`re${reNum}TimerOn`]: 99999,
+                                 [`re${reNum}TimerOff`]: 99999},
+                                reTimer.callBack);
+
+                        }  else {
+                            output |= ((onTime & 0x1FFFF) << 11); // bits 11-28
+                            ID = getID(defResp, 
+                                {[`re${reNum}TimerEn`]: 1, 
+                                 [`re${reNum}TimerOn`]: onTime,
+                                 [`re${reNum}TimerOff`]: offTime},
+                                reTimer.callBack);
+                        }
+
+                        output |= ((reNum & 0xF) << 28); // MSNibble
+                        output |= (duration & 0x7FF); // bits 0 - 10
+                        socket.send(`${cmd}/${output}/${ID}`); 
+                    }
+                }
+                }
+            );
         }
 
         // Once all selection have been built, build expan button and
         // adjustment bar.
         RO[`${name}ConExp`] = new RObuild("button", "Expand", ["span4"]);
-        // INP[`${name}ConAdj`] = new inputBuild(null, "div", "Adjust", 
-        //     false, ["smallItem", "span3"], null, null, null);
 
         return new eleBuild(`${name}Con`, RO, INP); // Return object.
     }
@@ -595,6 +734,11 @@
             });
             document.getElementById(container.parentID).appendChild(e);
         });
+
+        // Build the relay control buttons after RO is built.
+        if (container.parentID.includes("re")) {
+            buildRelayButtons(container, container.parentID[2]); // 3rd char.
+        }
     }
 
     // After the container read only portion has been built, the expand button
@@ -616,7 +760,7 @@
 
             Object.keys(inp).forEach(ele => {
                 const data = inp[ele];
-                const label = buildLabel(ele, data);
+                const label = buildLabel(ele, data); // Null if no label.
                 const e = buildInput(ele, data, container.parentID);
                 const but = data.incBut ? buildButton(ele, data) : null;
 
@@ -625,7 +769,7 @@
                 const hidden = data.rangeMap ? buildHidden(ele, data) : null;
     
                 // Append all newly created elements to the parent container.
-                append(label);
+                if (label) append(label);
                 append(e);
                 if (hidden != null) append(hidden);
                 if (but != null) append(but); // append last.
@@ -644,9 +788,7 @@
             let adj = document.createElement("div");
             adj.innerText = "Adjustments";
             adj.id = `${ID}Adj`;
-            adj.classList.add("span4");
-            adj.classList.add("smallItem");
-            adj.classList.add("adjCon"); // Gives grid within as well.
+            adj.className = "span4 smallItem con";
             append(adj);
 
             button.innerText = "Contract"; // acts as a toggle and display.
@@ -655,7 +797,7 @@
             Expansions[ID].forEach(id => document.getElementById(id).remove());
             button.innerText = "Expand";
 
-            if (container.parentID === "specCon") {
+            if (container.parentID === "specCon") { // Special rules
                 const integ = document.getElementById("spec");
                 integ.innerText = "Spectral Info Display";
                 integ.classList.remove("selected");
@@ -666,12 +808,9 @@
     // When building the interactive part of the container, builds the labels
     // for each input using the parent ID, and the input object data.
     let buildLabel = (parent, data) => {
+        if (!data.label) return null; // Prevents label if not set.
         const label = document.createElement("div");
-        if (data.label === "Adjust") {
-            label.style.gridColumn = "1"; // Span 1 if adj.
-        } else {
-            label.style.gridColumn = "1 / 3"; // Span 2 if regular inp
-        }
+        label.style.gridColumn = "1 / 3"; // Span 2 if regular inp
         label.innerText = data.label; 
         label.style.alignContent = "center"; // Keep inline with input boxes.
         label.id = `${parent}Lab`;
@@ -774,16 +913,11 @@
             }
 
             const adj = document.getElementById(`${ID}Adj`);
-            adj.innerHTML = `<input id="${ID}AdjBar" type="range">`;
+            adj.innerHTML = `<input id="${ID}AdjBar" type="range" ` + 
+                `class="span4" width="300px min="${min}" max="${max}" ` +
+                `step="${step}">`;
             
-            // Specify params for adjustment bar.
             const AdjBar = document.getElementById(`${ID}AdjBar`);
-            AdjBar.classList.add("span4");
-            AdjBar.style.width = "300px"; 
-            AdjBar.min = min;
-            AdjBar.max = max;
-            AdjBar.step = step;
-
             AdjBar.addEventListener("input", () => adjVals(AdjBar.value));
 
             // Specify params for buttons.
@@ -1082,7 +1216,7 @@
             const val = document.getElementById(IDs[0]);
             const alt = document.getElementById(IDs[1]);
 
-            val.innerText = `${name}: ${data[0]}`;
+            val.innerText = `${name.slice(0, 4)} #${name[4]}: ${data[0]}`;
             alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
 
             parent.style.backgroundColor = sensUpBg[allData[`${name}Up`]];
@@ -1090,23 +1224,14 @@
         }
 
         cont.forEach((sensor, idx) => {
-            let tIdx = idx + 1; // Temp index, used only for display soil.
-            
-            let data = [allData[`soil${tIdx}`], 
-                allData[`soil${tIdx}AltCond`], allData[`soil${tIdx}AltVal`]];
-            proc(sensor, data, `soil${tIdx}`);
+            let data = [allData[`soil${idx}`], 
+                allData[`soil${idx}AltCond`], allData[`soil${idx}AltVal`]];
+            proc(sensor, data, `soil${idx}`);
         });
     }
 
     let handlePhoto = () => {
         
-        const getDur = (seconds) => {
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = seconds % 60;
-            return `${h}:${m}:${s}`;
-        }
-
         let checkBounds = (data, eleReID, darkID, durID) => {
             // Check the relay is in play nad has a value.
             if (data[3] != RE_OFF) {
@@ -1142,7 +1267,7 @@
             re.innerText = `Plug: ${relayNum(data[3])} set to` +
                 ` ${reAltCond(data[4], data[5])}`;
 
-            dur.innerText = `Light duration: ${getDur(data[6])}`;
+            dur.innerText = `Light duration: ${timeStr(data[6])}`;
             dark.innerText = `Dark val set to ${data[7]}`;
 
             parent.style.backgroundColor = sensUpBg[allData.photoUp];
@@ -1158,11 +1283,11 @@
 
     let handleSpec = () => {
         const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
-        const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"};
+        const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"}; // For JSON key
 
         specButtonIDs.forEach(ID => {
             const e = document.getElementById(ID);
-            if (ID[0] === specDisplay) {
+            if (ID[0] === specDisplay) { // first char
                 e.classList.add("selected");
             } else {
                 e.classList.remove("selected");
@@ -1216,7 +1341,62 @@
     }
 
     const handleRelays = () => {
+        const cont = [re1Con, re2Con, re3Con, re4Con];
+        
+        // Ensure the same naming convention as buildRelayButtons().
+        cont.forEach((re, idx) => {
 
+            // Button stuff. Used to handle the force off function primarily.
+            const val = Number(allData[`re${idx}`]);
+            const off = document.getElementById(`re${idx}ConBut0`);
+            const on = document.getElementById(`re${idx}ConBut1`);
+            const forceOff = document.getElementById(`re${idx}ConBut2`);
+            const forceRem = document.getElementById(`re${idx}ConBut3`);
+
+            if (val === 2) { // Force off, disable all except force remove.
+                off.enabled = false;
+                on.enabled = false;
+                forceOff.enabled = false;
+                
+                if (!forceRem.interval) { // Flash indicating must be clicked.
+                    forceRem.interval = setInterval(() => {
+                        forceRem.classList.toggle("blinker");
+                    }, 500);
+                }
+
+            } else if (val === 3) { // Force removed, all reenabled.
+                off.enabled = true;
+                on.enabled = true;
+                forceOff.enabled = true;
+                if (forceRem.interval) { // If interval, remove it.
+                    clearInterval(forceRem.interval);
+                    forceRem.classList.remove("blinker"); // Remove if set.
+                }
+            }
+
+            for (let i = 0; i < 4; i++) { // Iterate through each button
+                const but = document.getElementById(`re${idx}ConBut${i}`);
+
+                if (val === i) {
+                    but.classList.add("selected");
+                } else {
+                    but.classList.remove("selected");
+                }
+            }
+
+            const IDs = Object.keys(re.readOnly);
+            const RO = document.getElementById(IDs[2]); // 3rd RO box.
+            const reTmrEn = allData[`re${idx}TimerEn`];
+            const reTmrOn = allData[`re${idx}TimerOn`];
+            const reTmrOff = allData[`re${idx}TimerOff`];
+
+            if (reTmrEn) {
+                RO.innerText = `Timer set from ${timeStr(reTmrOn)} to ` +
+                    `${timeStr(reTmrOff)}`;
+            } else {
+                RO.innerText = `Timer Disabled`;
+            }
+        });
     }
 
     // RECEIVED MESSAGE HANDLERS
@@ -1233,6 +1413,7 @@
         handleSoil();
         handlePhoto();
         handleSpec();
+        handleRelays();
 
         if (data.newLog === 1) getLog(); // Gets log if avail
     }
@@ -1246,14 +1427,12 @@
                 allData[key] = KVs[key];
             });
         }
-
-        if (CBfunc) CBfunc();
+        
+        if (CBfunc) CBfunc(); 
     };
 
     // Set the trends when received back from socker server.
     let setTrends = (data) => (trends = data); // Copies data to trends.
-
-
     let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val) + 1;
     let reAltCond = (cond, val) => {
         const textConv = ["<", ">", "NONE"];
@@ -1355,7 +1534,6 @@
         new cmdBuild("ATTACH_RELAYS", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null, null, 
-        null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(-30, 60, 0.5), // Celcius
@@ -1368,7 +1546,6 @@
         new cmdBuild("ATTACH_RELAYS", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum),
         new cmdBuild("SET_TEMPHUM", handleTempHum), null, null, null, null,
-        null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 99, 1), 
@@ -1377,42 +1554,27 @@
         }
     );
 
-    const soil1Con = buildCon("soil1", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
-        {
-            "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 1)
-        }
-    );
+    const soilBuilder = (num) => {
+        const soilCon = buildCon(`soil${num}`, null, null,
+            new cmdBuild("SET_SOIL", handleSoil), null, null, null, null,
+            {
+                "altCond": new rangeBuild(0, 2, 1),
+                "altSet": new rangeBuild(1, 4094, 1)
+            }, true
+        );
 
-    const soil2Con = buildCon("soil2", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
-        {
-            "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 1)
-        }
-    );
+        return soilCon;
+    }
 
-    const soil3Con = buildCon("soil3", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
-        {
-            "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 1)
-        }
-    );
-
-    const soil4Con = buildCon("soil4", null, null, 
-        new cmdBuild("SET_SOIL", handleSoil), null, null, null, null, null,
-        {
-            "altCond": new rangeBuild(0, 2, 1),
-            "altSet": new rangeBuild(1, 4094, 1)
-        }
-    );
+    const soil1Con = soilBuilder(0);
+    const soil2Con = soilBuilder(1);
+    const soil3Con = soilBuilder(2);
+    const soil4Con = soilBuilder(3);
 
     const lightCon = buildCon("light", 
         new cmdBuild("ATTACH_RELAYS", handlePhoto),
         new cmdBuild("SET_LIGHT", handlePhoto), null, 
-        new cmdBuild("SET_LIGHT", handlePhoto), null, null, null, null,
+        new cmdBuild("SET_LIGHT", handlePhoto), null, null, null,
         {
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 4094, 1), 
@@ -1422,7 +1584,7 @@
 
     const specCon = buildCon("spec", null, null, null, null, 
         new cmdBuild("SET_SPEC_INTEGRATION_TIME", handleSpec),
-        new cmdBuild("SET_SPEC_GAIN"), null, null,
+        new cmdBuild("SET_SPEC_GAIN", handleSpec), null,
         {
             "astep": new rangeBuild(0, 65534, 1),
             "atime": new rangeBuild(0, 255, 1),
@@ -1430,34 +1592,36 @@
         }
     );
 
-    const re1Con = buildCon("re1", null, null, null, null, null, null,
-        new cmdBuild("RELAY_1", handleRelays),
-        new cmdBuild("RELAY_1_TIMER_ON", handleRelays),
-        {
-            "reCont": new rangeBuild(0, 3, 1), "reTimer": new rangeBuild(0, )
-        }
-    );
+    const relayBuilder = (num) => {
+        const relayCon = buildCon(`re${num}`, null, null, null, null, null, 
+            null, // Relay control is within the buildRelayButtons
+            new cmdBuild("RELAY_TIMER", handleRelays),
+            {
+                "reHour": new rangeBuild(0, 23, 1),
+                "reMin": new rangeBuild(0, 59, 1),
+                "reCont": new rangeBuild(0, 3, 1), 
+                "reTimer": new rangeBuild(0, 86399, 1),
+                "reDur": new rangeBuild(1, 1439, 1)
+            }, true
+        );
 
-    const buildContainers = () => {
-        buildRO(tempCon);
-        buildRO(humCon);
-        buildRO(soil1Con);
-        buildRO(soil2Con);
-        buildRO(soil3Con);
-        buildRO(soil4Con);
-        buildRO(lightCon);
-        buildRO(specCon);
+        return relayCon;
     }
 
+    const re1Con = relayBuilder(0);
+    const re2Con = relayBuilder(1);
+    const re3Con = relayBuilder(2);
+    const re4Con = relayBuilder(3);
+
+    const allCon = [tempCon, humCon, soil1Con, soil2Con, soil3Con, soil4Con,
+        lightCon, specCon, re1Con, re2Con, re3Con, re4Con];
+
+    const buildContainers = () => allCon.forEach(con => buildRO(con));
+
     const addListeners = () => {
-    document.getElementById(tempCon.buttonID).onclick = () => expand(tempCon);
-    document.getElementById(humCon.buttonID).onclick = () => expand(humCon);
-    document.getElementById(soil1Con.buttonID).onclick = () => expand(soil1Con);
-    document.getElementById(soil2Con.buttonID).onclick = () => expand(soil2Con);
-    document.getElementById(soil3Con.buttonID).onclick = () => expand(soil3Con);
-    document.getElementById(soil4Con.buttonID).onclick = () => expand(soil4Con);
-    document.getElementById(lightCon.buttonID).onclick = () => expand(lightCon);
-    document.getElementById(specCon.buttonID).onclick = () => expand(specCon);
+        allCon.forEach(con => {
+            document.getElementById(con.buttonID).onclick = () => expand(con);
+        });
     }
 
     let loadPage = () => {

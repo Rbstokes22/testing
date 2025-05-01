@@ -133,9 +133,12 @@ let getIntCode = (astep, atime) => {
     console.log(ret);
 }
 
-getIntCode(718, 29);
-getIntCode(650, 32);
-getIntCode(599, 29);
+
+
+console.log(timeStr(82565));
+
+
+
 
 
 

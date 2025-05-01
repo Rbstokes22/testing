@@ -27,24 +27,27 @@ let CMDS = [null, // Used to index to a +1
     "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", 
     "RELAY_CTRL", "RELAY_TIMER", "ATTACH_RELAYS", 
     "SET_TEMPHUM", "SET_SOIL", "SET_LIGHT", "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", 
-    "CLEAR_AVERAGES", "SEND_REPORT_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"
+    "CLEAR_AVERAGES", "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"
 ];
+
 
 let allData = {
     "firmv": "1.0.0", "id": "1", "newLog": 0, "sysTime": 13683, "hhmmss": "3:48:3",
-    "timeCalib": 0, "re1": 0, "re1TimerEn": 0, "re1TimerOn": 99999,
-    "re1TimerOff": 99999, "re2": 0, "re2TimerEn": 0, "re2TimerOn": 99999,
-    "re2TimerOff": 99999, "re3": 0, "re3TimerEn": 0, "re3TimerOn": 99999,
-    "re3TimerOff": 99999, "re4": 0, "re4TimerEn": 0, "re4TimerOn": 99999,
-    "re4TimerOff": 99999, "temp": 25.87, "tempRe": 255, "tempReCond": 2,
+    "timeCalib": 0, 
+    "re0": 0, "re0TimerEn": 0, "re0TimerOn": 99999, "re0TimerOff": 99999,
+    "re1": 0, "re1TimerEn": 0, "re1TimerOn": 99999, "re1TimerOff": 99999, 
+    "re2": 0, "re2TimerEn": 0, "re2TimerOn": 99999, "re2TimerOff": 99999, 
+    "re3": 0, "re3TimerEn": 0, "re3TimerOn": 99999, "re3TimerOff": 99999, 
+    "temp": 25.87, "tempRe": 255, "tempReCond": 2,
     "tempReVal": 0, "tempAltCond": 2, "tempAltVal": 0, "hum": 54.03,
     "humRe": 255, "humReCond": 0, "humReVal": 2, "humAltCond": 2,
     "humAltVal": 0, "SHTUp": 1, "tempAvg": 25.8, "humAvg": 54.6,
-    "tempAvgPrev": 0, "humAvgPrev": 0, "soil1": 2735, "soil1AltCond": 2,
-    "soil1AltVal": 0, "soil1Up": 1, "soil2": 0, "soil2AltCond": 2,
-    "soil2AltVal": 0, "soil2Up": 1, "soil3": 0, "soil3AltCond": 2,
-    "soil3AltVal": 0, "soil3Up": 1, "soil4": 139, "soil4AltCond": 2,
-    "soil4AltVal": 0, "soil4Up": 1, "violet": 450, "indigo": 1025, "blue": 1448,
+    "tempAvgPrev": 0, "humAvgPrev": 0, 
+    "soil0": 139, "soil0AltCond": 2, "soil0AltVal": 0, "soil0Up": 1,
+    "soil1": 2735, "soil1AltCond": 2, "soil1AltVal": 0, "soil1Up": 1, 
+    "soil2": 0, "soil2AltCond": 2, "soil2AltVal": 0, "soil2Up": 1, 
+    "soil3": 0, "soil3AltCond": 2, "soil3AltVal": 0, "soil3Up": 1,  
+    "violet": 450, "indigo": 1025, "blue": 1448,
     "cyan": 2912, "green": 3517, "yellow": 6408, "orange": 7688, "red": 5191,
     "nir": 2170, "clear": 18000, "photo": 3248, "violetAvg": 420.2,
     "indigoAvg": 907.6, "blueAvg": 1331.6, "cyanAvg": 2516.2, "greenAvg": 3439.1,
@@ -54,8 +57,7 @@ let allData = {
     "yellowAvgPrev": 0, "orangeAvgPrev": 0, "redAvgPrev": 0, "nirAvgPrev": 0,
     "clearAvgPrev": 0, "photoAvgPrev": 0, "lightRe": 255, "lightReCond": 2,
     "lightReVal": 0, "lightDur": 7894, "photoUp": 1, "specUp": 1,
-    "darkVal": 500, "atime": 29, "astep": 599, "again": 9, "repTimeEn": 0,
-    "repSendTime": 86340
+    "darkVal": 500, "atime": 29, "astep": 599, "again": 9, "avgClrTime": 86340
  }	
 
 app.get("/OTAcheck", (req, res) => {
@@ -72,6 +74,19 @@ app.get("/ch", (req, res) => { // Easy way to see changes or change dynamic doc.
     const {key, val} = req.query;
     allData[key] = val;
     res.status(200).send("OK");
+});
+
+let toggle = true;
+app.get("/testSize", (req, res) => { // 182 bytes sending this way.
+    let resp = ["FAIL", "OK"];
+    let rep = resp[Number(toggle)];
+    toggle = !toggle;
+
+    res.setHeader("keep-alive", "timeout=15, max=10");
+    res.setHeader("greeting", "Hello");
+
+
+    res.send(rep);
 });
 
 wss.on("connection", (ws, req) => { // Set all event handlers
@@ -123,6 +138,7 @@ const process = (CMD, clientID) => {
             let reNum = (val >> 4) & 0b1111;
             let cmd = (val & 0b1111);
             allData[`re${reNum}`] = cmd;
+            console.log(`RN-${reNum} C-${cmd}`);
             json = {"status":1, "id": `${CMD[2]}`};
             clientSocket.send(JSON.stringify(json));
             }
@@ -204,6 +220,9 @@ const process = (CMD, clientID) => {
             let num = (val >> 20) & 0b1111;
             let cond = (val >> 16) & 0b111;
             let v = (val & 0xFFFF);
+
+            console.log(`N-${num} C-${cond}, V-${v}`);
+
             allData[`soil${num}AltCond`] = cond;
             allData[`soil${num}AltVal`] = (cond == 2) ? 0 : v;
             json = {"status":1, "id": `${CMD[2]}`};
@@ -256,9 +275,8 @@ const process = (CMD, clientID) => {
             }
             break;
 
-            case "SEND_REPORT_SET_TIME": {
-            allData.repTimeEn = (val != 99999);
-            allData.repSendTime = val;
+            case "CLEAR_AVG_SET_TIME": {
+            allData.avgClrTime = val;
             }
             break;
           
