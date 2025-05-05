@@ -82,10 +82,10 @@ app.get("/testSize", (req, res) => { // 182 bytes sending this way.
     let rep = resp[Number(toggle)];
     toggle = !toggle;
 
+    // Test different header settings
     res.setHeader("keep-alive", "timeout=15, max=10");
     res.setHeader("greeting", "Hello");
-
-
+    
     res.send(rep);
 });
 
@@ -304,6 +304,7 @@ const process = (CMD, clientID) => {
 
 // SERVER
 app.get("/", (req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=3600");
     res.render("station");
 });
 

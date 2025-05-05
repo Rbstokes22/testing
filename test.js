@@ -133,9 +133,18 @@ let getIntCode = (astep, atime) => {
     console.log(ret);
 }
 
+let d = {"myVar": 22, "myVar3": 77};
 
+let myVar = 22;
+let myVar2 = 33;
 
-console.log(timeStr(82565));
+let f = (ptr) => {
+    const myStuff = ptr ? ptr : d[ptr];
+    console.log(myStuff);
+}
+
+f("myVar3");
+
 
 
 
