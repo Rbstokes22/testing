@@ -133,17 +133,11 @@ let getIntCode = (astep, atime) => {
     console.log(ret);
 }
 
-let d = {"myVar": 22, "myVar3": 77};
+let str = "[22] , [77] , ";
 
-let myVar = 22;
-let myVar2 = 33;
+str = str.slice(0, str.length - 3);
+console.log(str);
 
-let f = (ptr) => {
-    const myStuff = ptr ? ptr : d[ptr];
-    console.log(myStuff);
-}
-
-f("myVar3");
 
 
 

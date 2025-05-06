@@ -277,6 +277,8 @@ const process = (CMD, clientID) => {
 
             case "CLEAR_AVG_SET_TIME": {
             allData.avgClrTime = val;
+            json = {"status":1, "id": `${CMD[2]}`};
+            clientSocket.send(JSON.stringify(json));
             }
             break;
           
@@ -295,6 +297,11 @@ const process = (CMD, clientID) => {
                 "orange": [5644,5663,0,0,0,0],
                 "red": [3853,3866,0,0,0,0],
                 "nir": [1548,1550,0,0,0,0]};
+
+            Object.keys(json).forEach(key => {
+                const newArr = json[key].slice(0, val);
+                json[key] = newArr;
+            });
 
             clientSocket.send(JSON.stringify(json));      
             break;
