@@ -133,10 +133,21 @@ let getIntCode = (astep, atime) => {
     console.log(ret);
 }
 
-let str = "[22] , [77] , ";
+let encodeCalib = (re, time, day) => {
+    let ret = 0;
+    ret |= (day & 0b111) << 17;
+    ret |= time & 0x1FFFF;
+    return ret;
+}
 
-str = str.slice(0, str.length - 3);
-console.log(str);
+let decodeCalib = (val) => {
+    let day = (val >> 17) & 0b111;
+    let time = val & 0x1FFFF;
+    console.log(`day = ${day}, time = ${time}, val = ${val}`);
+}
+
+let a = encodeCalib(86385, 6);
+decodeCalib(a);
 
 
 

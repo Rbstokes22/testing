@@ -24,20 +24,21 @@ let clients = {};
 
 // This will be an enum in the server
 let CMDS = [null, // Used to index to a +1
-    "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", 
-    "RELAY_CTRL", "RELAY_TIMER", "ATTACH_RELAYS", 
-    "SET_TEMPHUM", "SET_SOIL", "SET_LIGHT", "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", 
-    "CLEAR_AVERAGES", "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"
-];
+    "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", "RELAY_CTRL", 
+    "RELAY_TIMER", "RELAY_TIMER_DAY", "ATTACH_RELAYS", "SET_TEMPHUM", 
+    "SET_SOIL", "SET_LIGHT", "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", 
+    "CLEAR_AVERAGES", "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", 
+    "GET_TRENDS"];
 
 
 let allData = {
     "firmv": "1.0.0", "id": "1", "newLog": 0, "sysTime": 13683, "hhmmss": "3:48:3",
-    "timeCalib": 0, 
+    "day": 1, "timeCalib": 0, 
     "re0": 0, "re0TimerEn": 0, "re0TimerOn": 99999, "re0TimerOff": 99999,
     "re1": 0, "re1TimerEn": 0, "re1TimerOn": 99999, "re1TimerOff": 99999, 
     "re2": 0, "re2TimerEn": 0, "re2TimerOn": 99999, "re2TimerOff": 99999, 
     "re3": 0, "re3TimerEn": 0, "re3TimerOn": 99999, "re3TimerOff": 99999, 
+    "re0Days": 4, "re1Days": 7,"re2Days": 46, "re3Days": 22,
     "temp": 25.87, "tempRe": 255, "tempReCond": 2,
     "tempReVal": 0, "tempAltCond": 2, "tempAltVal": 0, "hum": 54.03,
     "humRe": 255, "humReCond": 0, "humReVal": 2, "humAltCond": 2,
@@ -155,6 +156,17 @@ const process = (CMD, clientID) => {
             allData[`re${reNum}TimerEn`] = (start === 99999) ? 0 : 1;
             allData[`re${reNum}TimerOn`] = start;
             allData[`re${reNum}TimerOff`] = end;
+            json = {"status":1, "id": `${CMD[2]}`};
+            clientSocket.send(JSON.stringify(json));
+            }
+
+            break;
+
+            case "RELAY_TIMER_DAY": {
+            let reNum = (val >> 8) & 0xF;
+            let day = val & 0x7F;
+            console.log(`renum = ${reNum}, days = ${day}`);
+            allData[`re${reNum}Days`] = day;
             json = {"status":1, "id": `${CMD[2]}`};
             clientSocket.send(JSON.stringify(json));
             }
@@ -353,8 +365,9 @@ app.get("/getLog", (req, res) => { // Works
 // All alerts or text services come though here. Include another variable
 // averages, which can be parsed here in the server.
 app.post("/Alerts", (req, res) => { 
-    const {APIkey, phone, msg, report} = req.body;
-    console.log(`API: ${APIkey}, Phone: ${phone}, Msg: ${msg}, Report: ${report}`);
+    console.log(req.body);
+    // const {APIkey, phone, msg, report} = req.body;
+    // console.log(`API: ${APIkey}, Phone: ${phone}, Msg: ${msg}, Report: ${report}`);
     res.status(200).send("OK"); // Will be OK, or FAIL
 });
 

@@ -74,15 +74,6 @@
             background-color: rgb(0, 26, 255);
         }
 
-        .valButton {
-            border: 2px solid black;
-            border-radius: 5px;
-            height: 4em;
-            width: 4em;
-            text-align: center;
-            padding: 20px;
-        }
-
         #specDisp {
             display: grid;
             grid-template-columns: 60px auto; /* 2 columns */
@@ -147,13 +138,33 @@
 
     <script>
 
+    // Built relay day selection, tested and works. 
+
+    // Close trends button is off center. with the rest of the trends. Ensure
+    // everything is center before continuing on.
+
+    // Once that is complete, build a display only div element for all analog,
+    // so soil and photo. This can be like the spec display, but have a fixed bar
+    // that reps 0 - 4095, and an object that moves along that bar. Have a calibrate
+    // button, only for the soil, dark is already calibratable for the photo and fine.
+    // This will pop up a prompt that allows the user to add in a numerical value for 
+    // dry and wet, or maybe a button that says calibrate dry, with a value box, or 
+    // you can hold it and it will calibrate to the current setting, same with wet.
+    // This way it is calibrated to the user, and they can mess with it as they see fit.
+
     // Code functionality complete. Cleaning up code currently on 
     // START CONTAINER SUPPLEMENTARY FUNCTIONS
     // Finish revising and commenting. Once complete, adjust css for layout
     // and effects until it looks pretty. Once complete, move to ESP32.
 
-    // Tested on ESP32 with several errors. Made commends on main.cpp, will
+    // Tested on ESP32 with several errors. Made comments on main.cpp, will
     // troubleshoot before continuing on here.
+
+    // ATTENTION: Logic throughout contains certain name specific methods using
+    // naming. So if anything is modified, check all dependencies. i.e. relay
+    // checks include if (name.includes("re")), you would want to ensure that
+    // any changes update that as well, for example if you renamed temp to 
+    // temperature, this could cause problems.
 
     // Network and Sockets
     const re = /(https?):\/\/([a-zA-Z0-9.-]+(:\d+)?)/; // Regex
@@ -197,14 +208,17 @@
     let isCelcius = false;
     const sensUpBg = ["yellow", "rgb(0, 224, 27)"]; // Sensor up background clr
     let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
+    const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+    let reDays = [0, 0, 0, 0]; // Relay day tracker for socket send only.
 
     // All commands from socketHandler.hpp. These must correspond with the
     // enum. Will be used to return the index num, which will be the cmd.
     let CMDS = [null, // Used to index to a +1
         "GET_ALL", "CALIBRATE_TIME", "NEW_LOG_RCVD", "RELAY_CTRL", 
-        "RELAY_TIMER", "ATTACH_RELAYS", "SET_TEMPHUM", "SET_SOIL", "SET_LIGHT", 
-        "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", "CLEAR_AVERAGES", 
-        "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", "GET_TRENDS"];
+        "RELAY_TIMER", "RELAY_TIMER_DAY", "ATTACH_RELAYS", "SET_TEMPHUM", 
+        "SET_SOIL", "SET_LIGHT", "SET_SPEC_INTEGRATION_TIME", "SET_SPEC_GAIN", 
+        "CLEAR_AVERAGES", "CLEAR_AVG_SET_TIME", "SAVE_AND_RESTART", 
+        "GET_TRENDS"];
 
     // Declare all vars here, to save space. idNum is used to keep track of
     // socket commands, allData contains all sensor data, and log contains
@@ -331,7 +345,7 @@
 
         } else if (name.includes("re")) { // Relay displays
 
-            RO[name] = new RObuild("div", `Plug #${Number(name[2]) + 1}`,
+            RO[name] = new RObuild("div", `Plug #${Number(name[2])}`,
                 ["smallItem", "span4"]); // Displays the relay number
 
             RO[`${name}ConButtons`] = new RObuild("div", "", 
@@ -628,6 +642,7 @@
     // inputs for on HH MM and off HH MM. 
     let buildConRelayTimerSet = (obj, name, ranges, RO, INP) => {
         RO[`${name}Stat`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        RO[`${name}Days`] = new RObuild("div", "0", ["smallItem", "span4"]);
 
         INP[`${name}HrSet`] = new inputBuild(ranges.reHour, "input",
             "On Time (HH MM):", false, ["smallItem"], null, null, null, 
@@ -643,7 +658,7 @@
 
         INP[`${name}MinOff`] = new inputBuild(ranges.reMin, "input",
             null, true, ["smallItem"], null, null, null, 
-            (toDisable = false) => {
+            () => {
 
             const cmd = convert(obj.cmd);
             const onHr = makeNum(`${name}HrSet`);
@@ -854,6 +869,14 @@
         if (button.innerText === "Expand") {
             Expansions[ID] = []; // Clear before use.
 
+            // Upon expand, if relay, include special day select buttons
+            // appended before hh mm settings or any other input settings. This
+            // exists due to special non-cookie cutter circumstances.
+            if (container.parentID.includes("re")) {
+                const days = expandRelayDays(container); // day selection.
+                append(days);
+            }
+
             // Iterate each input element, building the label, input element,
             // button, and hidden input... if required.
             Object.keys(inp).forEach(ele => {
@@ -865,7 +888,7 @@
                 // Build hidden carrier input if range map attached. This 
                 // allows separation of real values and display values.
                 const hidden = data.rangeMap ? expandHidden(ele, data) : null;
-    
+
                 // Append all newly created elements to the parent container.
                 if (label) append(label);
                 append(einp);
@@ -906,6 +929,76 @@
                 integ.classList.remove("selected");
             }
         }
+    }
+
+    // Requires relay container. Creates a button display before inputs with
+    // each day name. Sets the reDays global to the current selected days 
+    // which will be used to send a socket command with the days the relay timer
+    // is enabled. 
+    let expandRelayDays = (container) => {
+        const butDisp = document.createElement("div");
+        butDisp.className = "con span4";
+        const reNum = container.parentID[2]; // Relay number extraction.
+        const dayVal = Number(allData[`re${reNum}Days`]); // relay days value.
+        butDisp.id = `${container.parentID}Days`;
+
+        reDays[reNum] = 0; // Clear global before setting.
+
+        DAYS.forEach((day, idx) => {
+            const but = document.createElement("button");
+            but.id = `${container.parentID}${day}`;
+            but.value = 1 << idx; // bitwise sets the correct value.
+            but.innerText = day;
+
+            // Ensure proper selection upon expansion. The button attribute is
+            // in addition to ensure proper toggle.
+            let isSel = (dayVal >> idx) & 0b1;
+            if (isSel) {
+                but.isSel = true;
+                but.classList.add("selected");
+                reDays[reNum] += Number(but.value); // Sum all selected days.
+
+            } else {
+                but.isSel = false;
+                but.classList.remove("selected");
+            }
+
+            // Adjust the global relayDays upon changing values.
+            but.onclick = () => {
+                if (but.isSel) {
+                    reDays[reNum] -= Number(but.value);
+                    but.isSel = false;
+                    but.classList.remove("selected");
+
+                } else {
+                    reDays[reNum] += Number(but.value);
+                    but.isSel = true;
+                    but.classList.add("selected");
+                }
+            }
+            
+            butDisp.appendChild(but);
+        });
+
+        // Submits the bitwise value along with the relay number.
+        const submit = document.createElement("button");
+        submit.id = `${container.parentID}DaySubmit`;
+        submit.className = "span4";
+        submit.innerText = "Submit Timer Days";
+        submit.onclick = () => {
+            const cmd = convert("RELAY_TIMER_DAY");
+            const ID = getID(defResp, {[`re${reNum}Days`]: reDays[reNum]},
+                handleRelays);
+
+            let output = (reNum & 0xF) << 8; // Init with relay number.
+            output |= (reDays[reNum] & 0x7F); // 7 bits only, 1 for each day.
+ 
+            socket.send(`${cmd}/${output}/${ID}`);
+        }
+
+        butDisp.appendChild(submit);
+
+        return butDisp;
     }
 
     // Builds the input labels for each input requiring the input ID, and its
@@ -1025,7 +1118,7 @@
     let expandButton = (inpID, data) => {
         const button = document.createElement("button");
         const isRelay = inpID.includes("re");
-        const reText = "Submit (hold to disable timer)"; // if isRelay
+        const reText = "Submit Time (hold to disable timer)"; // if isRelay
         button.id = `${inpID}But`;
         
         // Timeout stuff is used only for the relay timer button.
@@ -1160,14 +1253,15 @@
         return Number(document.getElementById(ID).value);
     }
 
-    // Checks the value and that it is within the specified range. Changes BG
-    // to green and returns true upon success, and upon failure, alerts, and
-    // changes the BG to red returning false. isTemp true will only be for the
-    // temp value, no other inputs.
-    let QC = (val, ranges, parentID, isTemp = false) => {
-        const ele = document.getElementById(parentID);
+    // Requires the value, its ranges, the input ID, and if it is a temperature
+    // reading. Upon success, changes input BG to match, and same with failure,
+    // which also prompts an alert. 
+    let QC = (val, ranges, inpID, isTemp = false) => {
+        const ele = document.getElementById(inpID);
 
-        val = isTemp ? val / 100 : val; // If temperature, div val by 100.
+        // If temperature, div by 100 IAW ESP temperature protocol. This is 
+        // because temperature val will by mult by 100 before sending.
+        val = isTemp ? val / 100 : val; 
 
         if (val >= ranges.min && val <= ranges.max) {
             ele.classList.remove("badRange")
@@ -1604,19 +1698,32 @@
     }
 
     const handleRelays = () => {
-        const cont = [re1Con, re2Con, re3Con, re4Con];
+        const cont = [re1Con, re2Con, re3Con, re4Con]; // containers
         
         // Ensure the same naming convention as buildRelayButtons().
         cont.forEach((re, idx) => {
 
             // Button stuff. Used to handle the force off function primarily.
-            const val = Number(allData[`re${idx}`]);
+            const reVal = Number(allData[`re${idx}`]);
+            const dayVal = Number(allData[`re${idx}Days`]);
             const off = document.getElementById(`re${idx}ConBut0`);
             const on = document.getElementById(`re${idx}ConBut1`);
             const forceOff = document.getElementById(`re${idx}ConBut2`);
             const forceRem = document.getElementById(`re${idx}ConBut3`);
+            const days = document.getElementById(`re${idx}Days`);
 
-            if (val === 2) { // Force off, disable all except force remove.
+            // Set the RO display to show days set.
+            let dayStr = "Days: ";
+
+            for (let i = 0; i < 7; i++) { // Bitwise settings to extract day.
+                const isSet = (dayVal >> i) & 0b1;
+                if (isSet) dayStr += `${DAYS[i]} | `;
+            }
+
+            dayStr = dayStr.slice(0, dayStr.length - 3); // Del trailing delim.
+            days.innerText = dayStr;
+
+            if (reVal === 2) { // Force off, disable all except force remove.
                 off.enabled = false;
                 on.enabled = false;
                 forceOff.enabled = false;
@@ -1627,7 +1734,7 @@
                     }, 500);
                 }
 
-            } else if (val === 3) { // Force removed, all reenabled.
+            } else if (reVal === 3) { // Force removed, all reenabled.
                 off.enabled = true;
                 on.enabled = true;
                 forceOff.enabled = true;
@@ -1640,7 +1747,7 @@
             for (let i = 0; i < 4; i++) { // Iterate through each button
                 const but = document.getElementById(`re${idx}ConBut${i}`);
 
-                if (val === i) {
+                if (reVal === i) {
                     but.classList.add("selected");
                 } else {
                     but.classList.remove("selected");
@@ -1690,9 +1797,9 @@
     let setTrends = (data) => {
         const parent = document.getElementById("trendDisp");
         parent.innerText = ""; // Clear out before populating.
-        const mainLab = document.createElement("div");
+        const mainLab = document.createElement("div"); // main label.
         mainLab.classList.add("span4");
-        mainLab.innerHTML = `<b><---Newer   Older---></b><br>` +
+        mainLab.innerHTML = `<b><- - - Newer --- Older - - -></b><br>` +
             `Spectral data is out of 65535`;
         mainLab.style.textAlign = "center";
         parent.appendChild(mainLab);
@@ -1724,7 +1831,7 @@
         parent.appendChild(close);
     }
 
-    let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val) + 1;
+    let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val);
     let reAltCond = (cond, val) => {
         const textConv = ["<", ">", "NONE"];
         if (cond == 2) return textConv[cond];
