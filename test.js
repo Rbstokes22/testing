@@ -146,8 +146,7 @@ let decodeCalib = (val) => {
     console.log(`day = ${day}, time = ${time}, val = ${val}`);
 }
 
-let a = encodeCalib(86385, 6);
-decodeCalib(a);
+let a = ["soil", ""]
 
 
 

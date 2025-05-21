@@ -25,12 +25,14 @@
             font-size: 1.5em;
         }
 
-        .sleekButton {
+        .logFWbut {
             text-align: center;
             background-color: black;
             color: white;
             border-radius: 5px;
             font-weight: 700;
+            margin: 10px 0px 10px 0;
+            justify-content: center;
         }
 
         #FWbut {background-color: red;} 
@@ -43,8 +45,14 @@
         */
         #container { 
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: 1fr; /* default 1 column */
             gap: 10px;
+        }
+
+        @media (min-width: 600px) {
+            #container { /* 2 cols on wider screen */
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
 
         .item {
@@ -85,14 +93,7 @@
             color: rgb(255, 255, 255);
         }
 
-        #mainTrends, #trendDisp {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(75px, 1fr));
-            grid-template-rows: auto;
-            gap: 10px;
-            align-self: start; /* prevent stretching */
-            background-color: white;
-        }
+        .trends {background-color: white;}
 
         .span2 {grid-column: span 2;}
         .span3 {grid-column: span 3;}
@@ -114,8 +115,6 @@
 <body onload="loadPage()">
     <p id="title">MysteryGraph Greenhouse</p>
     <div id="otaUpd"></div>
-    <div id="timeCal"></div>
-
     <div id="container">
         <div id="mainCon" class="item"></div>
         <div id="tempCon" class="item"></div>
@@ -134,14 +133,22 @@
     
     <div id="log"></div>
 
-    <button id="logBut" class="sleekButton" onclick="openLog()">Open Log</button>
+    <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
 
-    // Built relay day selection, tested and works. 
+    // 90% done. Halfway done with markers for soil and photo. Continuing building
+    // this and streamline it to make it much cleaner. On mouse up, the relative positon
+    // percentage should be computed, like where does it fall in regards to the bar
+    // width percentage wise. This way, local storage saves that, and on reload it will
+    // place the markers back in the correct position, also with different views we want the
+    // placed marker to stay in the same position relative to the bar. Maybe make the bar 
+    // thicker, not sure yet? Maybe have a touch and hold feature, that will allow you to
+    // delete all markers or what now. Maybe on mouse down, the bar increases height to
+    // allow you to better see your positon, maybe with a cursor. Not sure yet.
+    // 
 
-    // Close trends button is off center. with the rest of the trends. Ensure
-    // everything is center before continuing on.
+    // Built relay day selection, tested and works. 
 
     // Once that is complete, build a display only div element for all analog,
     // so soil and photo. This can be like the spec display, but have a fixed bar
@@ -337,7 +344,7 @@
       
         if (name === "spec") { // Spectral display
 
-            RO[`${name}Disp`] = new RObuild("div", null, 
+            RO[`${name}Disp`] = new RObuild("div", null, // Primary
                 ["smallItem", "span4"]); // Display for spec chart.
 
             RO[name] = new RObuild("div", "Spectral Info Display", 
@@ -346,7 +353,7 @@
         } else if (name.includes("re")) { // Relay displays
 
             RO[name] = new RObuild("div", `Plug #${Number(name[2])}`,
-                ["smallItem", "span4"]); // Displays the relay number
+                ["smallItem", "span4"]); // Displays the relay number, Primary.
 
             RO[`${name}ConButtons`] = new RObuild("div", "", 
                 ["smallItem", "span4", "con"]); // button display.
@@ -396,6 +403,13 @@
                     socket.send(`${cmd}/${sendTime}/${ID}`);
                 }
             });
+
+        } else if (name.includes("soil") || name.includes("light")) { // soil/lt
+            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); // main
+
+            // Used to show visual intensity bar.
+            RO[`${name}ConIntensity`] = 
+                new RObuild("div", "", ["smallItem", "span4"]);
 
         } else { // All other displays.
             RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); 
@@ -715,6 +729,8 @@
     // here which will build the read only portion of each container.
     let buildRO = (container) => {
 
+        const parent = container.parentID;
+
         // Iterates each read only key, creates and builds elements.
         Object.keys(container.readOnly).forEach(eleID => {
             const data = container.readOnly[eleID];
@@ -725,12 +741,45 @@
                 if (cls == null || cls == undefined) return;
                 e.classList.add(cls);
             });
-            document.getElementById(container.parentID).appendChild(e);
+            document.getElementById(parent).appendChild(e);
         });
 
         // Build the relay control buttons after RO is built.
-        if (container.parentID.includes("re")) {
-            buildRelayButtons(container, container.parentID[2]); // 3rd char.
+        if (parent.includes("re")) {
+            buildRelayButtons(container, parent[2]); // 3rd char.
+        }
+
+        if (parent.includes("soil")) {
+
+            const bar = document.getElementById(`${parent}Intensity`);
+            bar.style.position = "relative";
+            
+            bar.addEventListener("mousedown", (e) => {
+                console.log("down");
+                const xPos = e.clientX;
+                const rect = bar.getBoundingClientRect();
+                const relX = xPos - rect.left - (bar.offsetHeight / 2);
+                const marker = document.createElement("div");
+                marker.style.background = "yellow";
+                marker.style.position = "absolute";
+                marker.style.left = 0;
+                marker.style.top = 0;
+                const height = `${bar.offsetHeight - 4}px`; // -4 due to border.
+                marker.style.height = height;
+                marker.style.width = height;
+                marker.style.left = relX + "px";
+                bar.appendChild(marker);
+            });
+
+
+
+          
+
+
+       
+
+          
+
         }
     }
 
@@ -793,7 +842,11 @@
     // Builds the trends display in the main container. Displays 4 buttons to
     // select the amount of hours, that when clicked, fetches from the server.
     let buildTrends = () => {
+
+        // Main container and buttons
         const parent = document.getElementById("mainTrends");
+        parent.classList.add("trends");
+        parent.classList.add("con");
         const buttons = ["3-hr", "6-hr", "9-hr", "12-hr"];
         const header = document.createElement("div");
         header.classList.add("span4");
@@ -804,14 +857,16 @@
         buttons.forEach(but => {
             const b = document.createElement("button");
             b.id = `trend${but}`;
-            b.value = Number(but[0]);
+            b.value = Number(but.split('-')[0]); // either 3, 6, 9, or 12.
             b.innerText = but;
             b.onclick = () => getTrends(b.value);
             parent.appendChild(b);
         });
 
+        // Trend text data will be set here. This preps for trend setting.
         const display = document.createElement("div");
         display.id = "trendDisp";
+        display.className = "con span4 trends";
         parent.appendChild(display);
     }
 
@@ -1445,6 +1500,19 @@
         }
     }
 
+    // requires the intensity bar ID, the current value, the max value, the
+    // starting color, and ending color. Colors the gradient background to show
+    // graphical proportionality of value compared to its max.
+    let intensityBar = (barID, val, max, clr1, clr2) => {
+        const bar = document.getElementById(barID);
+        const barWidth = bar.offsetWidth;
+        const pxStop = Number(val) / Number(max) * Number(barWidth);
+
+        bar.style.background = `linear-gradient(to right, 
+            ${clr1} 0px, ${clr1} ${pxStop}px, 
+            ${clr2} ${pxStop}px, ${clr2} ${barWidth}px)`; 
+    }
+
     let handleMain = () => {
 
         const units = ['F', 'C']; // Used for unit display.
@@ -1570,9 +1638,10 @@
         let proc = (cont, data, name) => {
             const parent = document.getElementById(cont.parentID);
             const IDs = Object.keys(cont.readOnly);
-            const val = document.getElementById(IDs[0]);
-            const alt = document.getElementById(IDs[1]);
+            const val = document.getElementById(IDs[0]); // main
+            const alt = document.getElementById(IDs[2]); // alert display
 
+            intensityBar(IDs[1], data[0], 4095, "red", "black");
             val.innerText = `${name.slice(0, 4)} #${name[4]}: ${data[0]}`;
             alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
 
@@ -1583,6 +1652,7 @@
         cont.forEach((sensor, idx) => {
             let data = [allData[`soil${idx}`], 
                 allData[`soil${idx}AltCond`], allData[`soil${idx}AltVal`]];
+
             proc(sensor, data, `soil${idx}`);
         });
     }
@@ -1613,10 +1683,14 @@
         let proc = (cont, data, name) => {
             const parent = document.getElementById(cont.parentID);
             const IDs = Object.keys(cont.readOnly);
-            const val = document.getElementById(IDs[0]);
-            const re = document.getElementById(IDs[1]);
-            const dur = document.getElementById(IDs[2]);
-            const dark = document.getElementById(IDs[3])
+            const val = document.getElementById(IDs[0]); // main
+            const re = document.getElementById(IDs[2]); // relay info
+            const dur = document.getElementById(IDs[3]); // duraiton info
+            const dark = document.getElementById(IDs[4]) // dark info
+            const barWidth = intensityBar.offsetWidth; // inten bar width
+            const pxStop = Number(data[0]) / 4095 * Number(barWidth);
+
+            intensityBar(IDs[1], data[0], 4095, "red", "black");
            
             val.innerText = `${name}: ${data[0]} | Avg: ${data[1].toFixed(1)}` +
                 ` | Prev Avg: ${data[2].toFixed(1)}`;
@@ -1805,7 +1879,7 @@
         parent.appendChild(mainLab);
 
         Object.keys(data).forEach(key => {
-            if (key === "id") return; // Skip AKA continue.
+            if (key === "id") return; // Skip AKA continue. Omit this kv pair.
             const lab = document.createElement("div");
             const content = document.createElement("div");
             lab.innerHTML = `<b>${key}</b>`;
@@ -1854,7 +1928,7 @@
             // If -1, means that there is an actual value, so the update
             // should be available in button form.
             if (noActionResp.indexOf(version) == -1) {
-                const html = `<button id="FWbut" class="sleekButton" 
+                const html = `<button id="FWbut" class="logFWbut" 
                     onclick="DLfirmware('${res.signatureURL}', 
                     '${res.firmwareURL}')"> Update to Version ${version}
                     </button>`;
