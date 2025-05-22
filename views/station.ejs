@@ -18,6 +18,19 @@
 
         body {
             color: black;
+            font-weight: 500;
+
+            /* prevents mobile button hold from zooming in on text 
+               Make class in future if this becomes problematic, and apply it 
+               to certain features.
+            */
+            -webkit-user-select: none;  /* Safari */
+            -moz-user-select: none;     /* Firefox */
+            -ms-user-select: none;      /* IE10+ */
+            user-select: none;          /* Standard */
+            
+            -webkit-touch-callout: none; /* Disable callout (iOS Safari) */
+            -webkit-tap-highlight-color: transparent; /* Remove tap highlight */
         }
 
         #title {
@@ -99,6 +112,7 @@
         .span3 {grid-column: span 3;}
         .span4 {grid-column: span 4;}
         .selected {background-color: rgb(255, 166, 0);}
+        
         .boundBust, .badRange, .warning {
             background-color: rgb(196, 0, 0);
             color: white;
@@ -108,7 +122,21 @@
             background-color: black;
             color: white;
         }
-        .blinker {background-color: red;}
+        .blinker {background-color: red; color: white; font-weight: 900;}
+        .intensityBar {
+            position: relative;
+            height: 20px;
+        }
+        .marker { /* Basic design for intensity markers */
+            position: absolute;
+            background: linear-gradient(to right, 
+                transparent 0px, transparent 15px,
+                white 15px, white 18px,
+                transparent 18px, transparent 33px);
+            width: 33px;
+        }
+        .marker.selected {background: rgb(255, 166, 0);}
+            
 
     </style>
 </head>
@@ -137,6 +165,10 @@
 
     <script>
 
+    // Markers almost done, they work. Now we just need to write a function or soemthing
+    // that allows them to be saved and responsive. Continute in line 787 to read the 
+    // details.
+
     // 90% done. Halfway done with markers for soil and photo. Continuing building
     // this and streamline it to make it much cleaner. On mouse up, the relative positon
     // percentage should be computed, like where does it fall in regards to the bar
@@ -145,7 +177,9 @@
     // placed marker to stay in the same position relative to the bar. Maybe make the bar 
     // thicker, not sure yet? Maybe have a touch and hold feature, that will allow you to
     // delete all markers or what now. Maybe on mouse down, the bar increases height to
-    // allow you to better see your positon, maybe with a cursor. Not sure yet.
+    // allow you to better see your positon, maybe with a cursor. Not sure yet. ANother
+    // idea will place upon touch, and will not be permanent until 1 second, and will glow
+    // red signaling to release, 
     // 
 
     // Built relay day selection, tested and works. 
@@ -231,7 +265,7 @@
     // socket commands, allData contains all sensor data, and log contains
     // all log entries.
     let socket, poll, clearReqID, requestIDs = {}, idNum = 0,
-        allData = {}, log = [], Expansions = {};
+        allData = {}, log = [], Expansions = {}, markers = {};
 
     // START CONTAINER BUILDING ================================================
 
@@ -725,6 +759,7 @@
         );
     }
 
+  
     // After the container has been constructed using buildCon, it is passed 
     // here which will build the read only portion of each container.
     let buildRO = (container) => {
@@ -749,37 +784,71 @@
             buildRelayButtons(container, parent[2]); // 3rd char.
         }
 
-        if (parent.includes("soil")) {
+        if (parent.includes("soil") || parent.includes("light")) {
+
+            // This is built upon load. I think the local storage needs to be
+            // looked at first for already created marker positions. And then 
+            // load them with the same properties as below. I think this could
+            // maybe have the key be the intensity bar it belongs to, and each
+            // marker would include its position percentage relative to the bar
+            // size, since the bar is responsive. I think we need to add another
+            // listener that will always adjust the position based on percentage,
+            // not like 22% but more so like 22.533%, down to the pixel essentially.
+            // So if the screen resizes, the listener will adjust the markers 
+            // position relative to the line. The function that does all of this
+            // could check the markers object first, if non-existent, it loads
+            // it from the local storage. If that does not exist, it populates
+            // nothing. Once the global is solid, everything will be built. Each
+            // marker will append itself to whichever bar it was a child of, and
+            // then position itself correctly. Each new marker, will append its
+            // data into first the global, and then the local storage.
+
+
+
+
 
             const bar = document.getElementById(`${parent}Intensity`);
-            bar.style.position = "relative";
-            
-            bar.addEventListener("mousedown", (e) => {
-                console.log("down");
-                const xPos = e.clientX;
+            bar.classList.add("intensityBar");
+            bar.block = false; // Used to block a new marker when one is sel.
+     
+            // Used pointerdown because click interferes with the marker ev list
+            // causing creation of marker upon release of another.
+            bar.addEventListener("pointerdown", (e) => {
+                if (bar.block) return; // Prevent marker creation if sel.
+                const xPos = e.clientX; // screen xpos.
                 const rect = bar.getBoundingClientRect();
-                const relX = xPos - rect.left - (bar.offsetHeight / 2);
+                const relX = xPos - rect.left - 19; // half mk approx - border
+
                 const marker = document.createElement("div");
-                marker.style.background = "yellow";
-                marker.style.position = "absolute";
-                marker.style.left = 0;
-                marker.style.top = 0;
+                marker.classList.add("marker");
+                marker.style.left = 0; // positions left most position.
+                marker.style.top = 0; // will not change, held const.
                 const height = `${bar.offsetHeight - 4}px`; // -4 due to border.
                 marker.style.height = height;
-                marker.style.width = height;
-                marker.style.left = relX + "px";
+                marker.style.left = relX + "px"; // Places at mouse click pos.
+                marker.timeout = null; // Added with ev list.
+
+                markers[`${55}`] = 55;
+
+
+                marker.addEventListener("pointerdown", (e) => {
+                    bar.block = true; // Block addition of new marker.
+                    marker.classList.add("selected"); // Highlight bg.
+                 
+                    marker.timeout = setTimeout(() => { // Del marker at 500ms.
+                        bar.removeChild(marker);
+                        bar.block = false; // Allow new markers.
+                    }, 500);
+                });
+
+                marker.addEventListener("pointerup", (e) => {
+                    bar.block = false; // Allow new markers.
+                    marker.classList.remove("selected");
+                    clearTimeout(marker.timeout);
+                });
+
                 bar.appendChild(marker);
             });
-
-
-
-          
-
-
-       
-
-          
-
         }
     }
 
@@ -970,12 +1039,17 @@
             append(adj);
 
             button.innerText = "Contract"; // acts as a toggle and display.
+            button.interval = setInterval(() => { // Allows blinking
+                button.classList.toggle("blinker");
+            }, 500);
 
         } else if (button.innerText === "Contract") { 
 
             // Iterates the containers expansion IDs, and removes each one.
             Expansions[ID].forEach(id => document.getElementById(id).remove());
             button.innerText = "Expand";
+            clearInterval(button.interval);
+            button.classList.remove("blinker");
 
             // Special rules to default the display to a set string.
             if (container.parentID === "specCon") { 
@@ -1175,14 +1249,12 @@
         const isRelay = inpID.includes("re");
         const reText = "Submit Time (hold to disable timer)"; // if isRelay
         button.id = `${inpID}But`;
+        button.holdTimeout = null; // Store within button.
         
-        // Timeout stuff is used only for the relay timer button.
-        let holdTimeout = 0; // Will be assigned to a timeout.
-
         // Assigns a timeout to holdTimeout. If hold complete for 1 sec,
         // zeros all values and submits, which will trigger a disable timer.
         let startHold = () => { 
-            holdTimeout = setTimeout(() => {
+            button.holdTimeout = setTimeout(() => {
                 const tag = inpID.slice(0, 3); // Ex re1, re2, etc...
                 document.getElementById(`${tag}HrSet`).value = 0;
                 document.getElementById(`${tag}MinSet`).value = 0;
@@ -1194,21 +1266,25 @@
         }
         
         let endHold = () => { // Releases timeout.
-            clearTimeout(holdTimeout);
+            clearTimeout(button.holdTimeout);
             button.innerText = reText;
             button.classList.remove("warning");
+            data.butFunc();
         }
 
         button.innerText = isRelay ? reText : "Submit";
-        button.onclick = () => data.butFunc();
+        
+        // Special conditions for relay buttons. Prevents click and mouse events
+        // from contradicting.
+        if (inpID.includes("re")) {
+            button.classList.add("span4");
+            button.addEventListener("pointerdown", startHold);
+            button.addEventListener("pointerup", endHold);
 
-        // returns button, only relays get the additional event listeners.
-        if (!inpID.includes("re")) return button; 
-        button.classList.add("span4");
-        button.addEventListener("mousedown", startHold);
-        button.addEventListener("mouseup", endHold);
-        button.addEventListener("touchstart", startHold);
-        button.addEventListener("touchend", endHold);
+        } else {
+            button.onclick = () => data.butFunc(); // full check.
+        }
+
         return button;
     }
 
