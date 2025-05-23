@@ -131,7 +131,7 @@
             position: absolute;
             background: linear-gradient(to right, 
                 transparent 0px, transparent 15px,
-                white 15px, white 18px,
+                yellow 15px, yellow 18px,
                 transparent 18px, transparent 33px);
             width: 33px;
         }
@@ -158,40 +158,19 @@
         <div id="re2Con" class="item"></div>
         <div id="re3Con" class="item"></div>
     </div> <!-- contains all periph containers-->
-    
+    <button>Save&ResetPH</button>
     <div id="log"></div>
 
     <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
 
-    // Markers almost done, they work. Now we just need to write a function or soemthing
-    // that allows them to be saved and responsive. Continute in line 787 to read the 
-    // details.
+    // Markers complete and work as advertised using local storage and response.
+    // Comment out everything with the intensity bar and markers, and then continue
+    // on.
 
-    // 90% done. Halfway done with markers for soil and photo. Continuing building
-    // this and streamline it to make it much cleaner. On mouse up, the relative positon
-    // percentage should be computed, like where does it fall in regards to the bar
-    // width percentage wise. This way, local storage saves that, and on reload it will
-    // place the markers back in the correct position, also with different views we want the
-    // placed marker to stay in the same position relative to the bar. Maybe make the bar 
-    // thicker, not sure yet? Maybe have a touch and hold feature, that will allow you to
-    // delete all markers or what now. Maybe on mouse down, the bar increases height to
-    // allow you to better see your positon, maybe with a cursor. Not sure yet. ANother
-    // idea will place upon touch, and will not be permanent until 1 second, and will glow
-    // red signaling to release, 
-    // 
-
-    // Built relay day selection, tested and works. 
-
-    // Once that is complete, build a display only div element for all analog,
-    // so soil and photo. This can be like the spec display, but have a fixed bar
-    // that reps 0 - 4095, and an object that moves along that bar. Have a calibrate
-    // button, only for the soil, dark is already calibratable for the photo and fine.
-    // This will pop up a prompt that allows the user to add in a numerical value for 
-    // dry and wet, or maybe a button that says calibrate dry, with a value box, or 
-    // you can hold it and it will calibrate to the current setting, same with wet.
-    // This way it is calibrated to the user, and they can mess with it as they see fit.
+    // Add functionality to the save and reset button. Maybe create this in main
+    // instead.
 
     // Code functionality complete. Cleaning up code currently on 
     // START CONTAINER SUPPLEMENTARY FUNCTIONS
@@ -265,7 +244,7 @@
     // socket commands, allData contains all sensor data, and log contains
     // all log entries.
     let socket, poll, clearReqID, requestIDs = {}, idNum = 0,
-        allData = {}, log = [], Expansions = {}, markers = {};
+        allData = {}, log = [], Expansions = {}, Markers = {};
 
     // START CONTAINER BUILDING ================================================
 
@@ -785,70 +764,8 @@
         }
 
         if (parent.includes("soil") || parent.includes("light")) {
-
-            // This is built upon load. I think the local storage needs to be
-            // looked at first for already created marker positions. And then 
-            // load them with the same properties as below. I think this could
-            // maybe have the key be the intensity bar it belongs to, and each
-            // marker would include its position percentage relative to the bar
-            // size, since the bar is responsive. I think we need to add another
-            // listener that will always adjust the position based on percentage,
-            // not like 22% but more so like 22.533%, down to the pixel essentially.
-            // So if the screen resizes, the listener will adjust the markers 
-            // position relative to the line. The function that does all of this
-            // could check the markers object first, if non-existent, it loads
-            // it from the local storage. If that does not exist, it populates
-            // nothing. Once the global is solid, everything will be built. Each
-            // marker will append itself to whichever bar it was a child of, and
-            // then position itself correctly. Each new marker, will append its
-            // data into first the global, and then the local storage.
-
-
-
-
-
-            const bar = document.getElementById(`${parent}Intensity`);
-            bar.classList.add("intensityBar");
-            bar.block = false; // Used to block a new marker when one is sel.
-     
-            // Used pointerdown because click interferes with the marker ev list
-            // causing creation of marker upon release of another.
-            bar.addEventListener("pointerdown", (e) => {
-                if (bar.block) return; // Prevent marker creation if sel.
-                const xPos = e.clientX; // screen xpos.
-                const rect = bar.getBoundingClientRect();
-                const relX = xPos - rect.left - 19; // half mk approx - border
-
-                const marker = document.createElement("div");
-                marker.classList.add("marker");
-                marker.style.left = 0; // positions left most position.
-                marker.style.top = 0; // will not change, held const.
-                const height = `${bar.offsetHeight - 4}px`; // -4 due to border.
-                marker.style.height = height;
-                marker.style.left = relX + "px"; // Places at mouse click pos.
-                marker.timeout = null; // Added with ev list.
-
-                markers[`${55}`] = 55;
-
-
-                marker.addEventListener("pointerdown", (e) => {
-                    bar.block = true; // Block addition of new marker.
-                    marker.classList.add("selected"); // Highlight bg.
-                 
-                    marker.timeout = setTimeout(() => { // Del marker at 500ms.
-                        bar.removeChild(marker);
-                        bar.block = false; // Allow new markers.
-                    }, 500);
-                });
-
-                marker.addEventListener("pointerup", (e) => {
-                    bar.block = false; // Allow new markers.
-                    marker.classList.remove("selected");
-                    clearTimeout(marker.timeout);
-                });
-
-                bar.appendChild(marker);
-            });
+            const ID = `${parent}Intensity`;
+            intensityBarMarker(ID, true);
         }
     }
 
@@ -1580,13 +1497,123 @@
     // starting color, and ending color. Colors the gradient background to show
     // graphical proportionality of value compared to its max.
     let intensityBar = (barID, val, max, clr1, clr2) => {
+        
         const bar = document.getElementById(barID);
-        const barWidth = bar.offsetWidth;
+        const barWidth = bar.offsetWidth - 4; // -4 due to 2px borders. 
         const pxStop = Number(val) / Number(max) * Number(barWidth);
 
         bar.style.background = `linear-gradient(to right, 
             ${clr1} 0px, ${clr1} ${pxStop}px, 
-            ${clr2} ${pxStop}px, ${clr2} ${barWidth}px)`; 
+            ${clr2} ${pxStop}px, ${clr2} ${barWidth}px)`;
+            
+        // Adjust any markers as well
+        const MKR = Markers[barID]; // Arrays only
+
+        if (MKR && MKR.length > 0) {
+            MKR.forEach(pos => {
+                const marker = document.getElementById(`${barID}${pos}`);
+                const pxl = Math.floor(Number(barWidth) * pos);
+                marker.style.left = Number(pxl - 17) + "px";
+            });
+        }
+    }
+
+    let intensityBarMarker = (barID, init = false) => {
+    
+        const bar = document.getElementById(barID);
+        const brdr = 2; // pixel width of the border set by css.
+        const mrkr = 17; // pixel at 1/2 marker width.
+        let MKR = Markers[barID]; // Will be array only.
+
+        // First check global object to see if anything exists.
+        if (!MKR) { // Nothing exists, use local.
+            const loc = localStorage.getItem(`MKR${barID}`);
+
+            if (!loc) { // No local storage exists.
+                localStorage.setItem(`MKR${barID}`, "[]"); // Create empty set.
+            } else { // Local storage exists.
+                MKR = JSON.parse(loc); // Copy loc strg to global.
+            }
+        }
+
+        let buildMarker = (height, width, relX) => {
+            const marker = document.createElement("div");
+            marker.classList.add("marker");
+            marker.style.top = 0; // const
+            marker.style.height = height + "px";
+            marker.style.left = `${relX - mrkr - brdr}px`; // cursor = center
+            marker.timeout = null; // Added with event list.
+
+            // get marker placement percentage of bar based on mouse click loc.
+            const perc = Number(((relX - brdr) / width).toFixed(5));
+            
+            marker.percentage = perc;
+            marker.id = `${barID}${perc}`;
+
+            if (Markers[barID]) {Markers[barID].push(perc);} // exists.
+            else {Markers[barID] = [perc];} // first creation
+
+            localStorage.setItem(`MKR${barID}`, JSON.stringify(Markers[barID])); 
+
+            marker.addEventListener("pointerdown", (e) => {
+                bar.block = true; // Block addition of new marker to bar.
+                marker.classList.add("selected"); // Highlight background.
+
+                marker.timeout = setTimeout(() => { // Allows deletion with hold
+                    bar.removeChild(marker);
+
+                    // Remove marker from the markers object.
+                    const idx = Markers[barID].indexOf(marker.percentage);
+                    if (idx != -1) {
+                        Markers[barID].splice(idx, 1); // Remove value 
+                        localStorage.setItem(`MKR${barID}`, 
+                            JSON.stringify(Markers[barID])); 
+                    }
+                    bar.block = false; // Allow new markers.
+                }, 500);
+            });
+
+            marker.addEventListener("pointerup", (e) => {
+                bar.block = false; // Allow new markerts.
+                marker.classList.remove("selected");
+                clearTimeout(marker.timeout);
+            });
+
+            bar.appendChild(marker);
+        }
+
+        if (init) { // First build, sets all ev list
+            bar.classList.add("intensityBar");
+            bar.id = barID;
+            bar.block = false; // Used to block a new marker when it is sel.
+
+            bar.addEventListener("pointerdown", (e) => {
+                if (bar.block) return; // Block new marker creation if is sel.
+
+                const xPos = e.clientX; // screen xpos.
+                const rect = bar.getBoundingClientRect();
+                const relX = xPos - rect.left; // Relative x position to bar.
+
+                // height and width adjusted to inner dimensions of bar. Allows
+                // size response if dimensions change.
+                const height = bar.offsetHeight - (brdr * 2); // bar height
+                const width = bar.offsetWidth - (brdr * 2); // bar width
+                buildMarker(height, width, relX);
+            });
+        }
+
+        // Recheck for data
+        if (MKR.length > 0) { // populated, iterate and append.
+            MKR.forEach(pos => {
+                const height = bar.offsetHeight - (brdr * 2); // bar height
+                const width = bar.offsetWidth - (brdr * 2); // bar width
+                const pxl = Math.floor(Number(width * pos));
+
+                // brdr added, since it will be subtracted in the build Maker.
+                // Prevents a -2 subtraction with each load.
+                buildMarker(height, width, pxl + brdr); 
+            });
+        } // No data otherwise, do nothing.
     }
 
     let handleMain = () => {

@@ -146,7 +146,12 @@ let decodeCalib = (val) => {
     console.log(`day = ${day}, time = ${time}, val = ${val}`);
 }
 
-let a = ["soil", ""]
+let a = {"t": []};
+
+console.log(a["t"].length);
+
+
+
 
 
 
