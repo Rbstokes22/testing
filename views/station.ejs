@@ -117,6 +117,7 @@
             background-color: rgb(196, 0, 0);
             color: white;
         }
+        .good {background-color: rgb(0, 224, 27);}
         
         .dark {
             background-color: black;
@@ -158,24 +159,24 @@
         <div id="re2Con" class="item"></div>
         <div id="re3Con" class="item"></div>
     </div> <!-- contains all periph containers-->
-    <button>Save&ResetPH</button>
+    <button class="logFWbut" onclick="saveReset()">Save & Reset</button>
     <div id="log"></div>
 
     <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
 
-    // Markers complete and work as advertised using local storage and response.
-    // Comment out everything with the intensity bar and markers, and then continue
-    // on.
+    // Code functionality complete. Continute cleaning up code, currently on 
+    // open log. Ensure appropriate sections throughout, like we have been doing.
+    // Handlers, including calibrate time, trends, and all periphs should be 
+    // blocked together. Ensure that the socket stuff is grouped together, I havent
+    // decided if response message handlers should be grouped in with sockets,
+    // but I would imagine the answer is yes. Once comments and code revised,
+    // test with ESP32, and once good, finish up CSS and making things look
+    // prettier. Ensure that we minimize obscurity such as rgb(n, n, n) and 
+    // go to incorporate more classlist adding and removal if feasible, or a way
+    // to centrailize color control.
 
-    // Add functionality to the save and reset button. Maybe create this in main
-    // instead.
-
-    // Code functionality complete. Cleaning up code currently on 
-    // START CONTAINER SUPPLEMENTARY FUNCTIONS
-    // Finish revising and commenting. Once complete, adjust css for layout
-    // and effects until it looks pretty. Once complete, move to ESP32.
 
     // Tested on ESP32 with several errors. Made comments on main.cpp, will
     // troubleshoot before continuing on here.
@@ -1308,16 +1309,17 @@
         const ele = document.getElementById(inpID);
 
         // If temperature, div by 100 IAW ESP temperature protocol. This is 
-        // because temperature val will by mult by 100 before sending.
+        // because temperature (VAL ONLY) will by mult by 100 before sending.
         val = isTemp ? val / 100 : val; 
 
-        if (val >= ranges.min && val <= ranges.max) {
+        if (val >= ranges.min && val <= ranges.max) { // Check within range.
             ele.classList.remove("badRange")
-            ele.style.backgroundColor = "rgb(0, 224, 27)";
+            ele.classList.add("good");
             return true;
 
-        } else {
+        } else { // Not within range.
             ele.classList.add("badRange");
+            ele.classList.remove("good");
 
             if (isTemp && !isCelcius) { // Applies to faren value only.
                 window.alert(`${((val * 1.8) + 32).toFixed(1)} out of range ` +
@@ -1333,35 +1335,39 @@
         }
     }
 
+    // Timestring requires seconds after midnight, and returnRaw which is def
+    // to false. Gives a string if false, and if true, returns array with 
+    // [hh, mm, ss]. Ensures 2 digits per value and all vals are strings.
     let timeStr = (seconds, returnRaw = false) => {
         const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
         const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
         const s = (seconds % 60).toString().padStart(2, '0');
-        return (returnRaw) ? [h, m, s]: `${h}:${m}:${s}`;
+        return (returnRaw) ? [h, m, s] : `${h}:${m}:${s}`;
     }
 
-    // Returns the index of the command, this is used with esp32 ssocket
-    // command as argument 1.
+    // END CONTAINER SUPPLEMENTARY FUNCTIONS. ==================================
+    // START SOCKET FUNCTIONS. =================================================
+
+    // Returns the index of the command, this is used with esp32 socket
+    // command as argument 0.
     const convert = (CMD) => Number(CMDS.indexOf(CMD));
 
     // Requires callback function for a successful update, the key/value
-    // pairs with the key being the allData JSON key, and its value to
+    // pairs with the key being the allData JSON key, and the value to
     // update to, and the second callback function which will run after
-    // the JSON has been updated, to update the display. Returns the ID.
+    // the JSON has been updated, to immediately update display if occured 
+    // between polling all data. Returns ID which will be used for handling.
     const getID = (callback1 = null, KVs = null, callback2 = null) => {
-        const id = idNum++;
+        const id = idNum++; // between 0 and 255, rotating.
         requestIDs[id] = [callback1, KVs, callback2]; 
         idNum = (idNum >= maxID) ? 0 : idNum; // Reset to 0 if == max.
         return id;
     }
 
-    // END CONTAINER SUPPLEMENTARY FUNCTIONS. ==================================
-    // START SOCKET HANDLERS. ==================================================
-
     // No params. Returns true if socket is open, false if not.
     const isSocketOpen = () => (Flags.SKTconn && WebSocket.OPEN);
 
-    // SOCKETS. Event handlers.
+    // SOCKETS. All event handlers init here.
     const initWebSocket = () => {
         console.log("Init websocket");
         socket = new WebSocket(webSktURL); // Open new socket.
@@ -1370,11 +1376,11 @@
         socket.onmessage = socketMsg;
     }
 
-    const socketOpen = () => { // Open socket handler
+    const socketOpen = () => { // Open socket handler and start polling.
         console.log("Connected to server");
         Flags.SKTconn = true;
         poll = setInterval(pollServer, POLL_INTV); // Set intervals
-        clearReqID = setInterval(clearOldRequests, 10000);
+        clearReqID = setInterval(clearOldRequests, 10000); 
     }
 
     const socketClose = () => { // Close socket handler
@@ -1382,18 +1388,15 @@
         Flags.SKTconn = false;
         clearInterval(poll); // Clear intervals.
         clearInterval(clearReqID);
-        setTimeout(initWebSocket, 2000); // Attempt reconnect.
+        setTimeout(initWebSocket, 2000); // Attempt reconnect after 2 sec.
     }
 
     // Messages from server will be in JSON format, parsed, and sent to the
     // assigned function to handle that response.
     const socketMsg = (event) => handleResponse(JSON.parse(event.data)); 
 
-    // END SOCKET HANDLERS. ====================================================
-
-    // Receives the parsed JSON response from the socket message. Gets its
-    // function from the ID, runs the function passing the response, and
-    // deletes the ID signifying the request is complete.
+    // Requires parsed JSOn response from skt. Extracts callback function and
+    // runs if exists. Deletes the request ID upon receiving response. 
     const handleResponse = (response) => {
         const func = requestIDs[response.id][0]; // callback function
     
@@ -1402,9 +1405,9 @@
         // most socket responses.
         if (func === defResp && response.status === 1) { // 1 = success
             func(requestIDs[response.id][1], requestIDs[response.id][2]);
-        } else if (func != null) { 
+        } else if (func != null) { // no resp status returned for non-defResp.
             func(response); // Used moreso for trends and get all.
-        }
+        } // else do nothing as nothing changes.
 
         delete requestIDs[response.id]; // Delete corresponding ID.
     }
@@ -1424,8 +1427,11 @@
         });
     }
 
+    // END SOCKET FUNCTIONS. ===================================================
+    // START GENERAL FUNCTIONS. ================================================
+
     // Gets the log, separates it into a non-delimited array, to be used
-    // for diplay.
+    // for diplay at the page bottom.
     let getLog = () => { // HTTP call
         const button = document.getElementById("logBut");
         fetch(logURL)
@@ -1435,11 +1441,11 @@
             }
             return response.text(); // If no err, proceed.
         })
-        .then(text => {
+        .then(text => { // Now in text form.
             if (text.length <= 0) throw new Error("No Log Data");
             log = text.split(logDelim); // Split by delim into array.
-            button.style.backgroundColor = "green"; // Shows new log
-
+            button.classList.add("good"); // Shows new log.
+        
             // Is a receipt only, Allows server to remove flag.
             if (!isSocketOpen()) return; // Block
             socket.send(`${convert("NEW_LOG_RCVD")}/${0x00}/${getID()}`); 
@@ -1458,9 +1464,9 @@
             button.innerText = "Close log";
             Flags.openLog = false;
 
-        } else if (!Flags.openLog) {
+        } else {
             logDisp.innerText = ""; // Clear out.
-            button.style.backgroundColor = "black";
+            button.classList.remove("good"); // Reset back to default.
             button.innerText = "Open log";
             Flags.openLog = true;
         }
@@ -1497,27 +1503,32 @@
     // starting color, and ending color. Colors the gradient background to show
     // graphical proportionality of value compared to its max.
     let intensityBar = (barID, val, max, clr1, clr2) => {
-        
         const bar = document.getElementById(barID);
         const barWidth = bar.offsetWidth - 4; // -4 due to 2px borders. 
-        const pxStop = Number(val) / Number(max) * Number(barWidth);
+        const pxStop = Number(val) / Number(max) * Number(barWidth); // pixel
 
+        // Set gradient of bar based on pixel stop threshold.
         bar.style.background = `linear-gradient(to right, 
             ${clr1} 0px, ${clr1} ${pxStop}px, 
             ${clr2} ${pxStop}px, ${clr2} ${barWidth}px)`;
             
-        // Adjust any markers as well
+        // Adjust any markers as well as the intensity bar. Dyanmic response.
+        // If expansion seem to show skewing, its because it is proportionality
+        // based, meaning a longer bar will show issues of improper placement.
         const MKR = Markers[barID]; // Arrays only
 
-        if (MKR && MKR.length > 0) {
+        if (MKR && MKR.length > 0) { // If marker exists and has elements.
             MKR.forEach(pos => {
                 const marker = document.getElementById(`${barID}${pos}`);
                 const pxl = Math.floor(Number(barWidth) * pos);
-                marker.style.left = Number(pxl - 17) + "px";
+                marker.style.left = Number(pxl - 17) + "px"; // adj mkr width.
             });
         }
     }
 
+    // Requires the intensity bar ID, and if init. Only called once, but left
+    // open to modularity. Sets event listeners and builds all previously 
+    // stored markers in local storage, upon init.
     let intensityBarMarker = (barID, init = false) => {
     
         const bar = document.getElementById(barID);
@@ -1536,6 +1547,8 @@
             }
         }
 
+        // Requires the height, width, and relative X-pos. Can be called during
+        // init, as well as local storage iteration. Builds and populates mkrs.
         let buildMarker = (height, width, relX) => {
             const marker = document.createElement("div");
             marker.classList.add("marker");
@@ -1547,7 +1560,7 @@
             // get marker placement percentage of bar based on mouse click loc.
             const perc = Number(((relX - brdr) / width).toFixed(5));
             
-            marker.percentage = perc;
+            marker.percentage = perc; // created percentage along inten bar.
             marker.id = `${barID}${perc}`;
 
             if (Markers[barID]) {Markers[barID].push(perc);} // exists.
@@ -1574,12 +1587,12 @@
             });
 
             marker.addEventListener("pointerup", (e) => {
-                bar.block = false; // Allow new markerts.
+                bar.block = false; // Allow new markers.
                 marker.classList.remove("selected");
                 clearTimeout(marker.timeout);
             });
 
-            bar.appendChild(marker);
+            bar.appendChild(marker); // Set marker on bar.
         }
 
         if (init) { // First build, sets all ev list
@@ -2075,6 +2088,11 @@
             updHTML += ` (Error)`;
             OTAdisp.innerHTML = updHTML;
         });
+    }
+
+    // Saves and resets the esp32.
+    const saveReset = () => {
+        socket.send(`${convert("SAVE_AND_RESTART")}/0/${getID()}`);
     }
 
     // When called, sets a timeout for 15 sec to check for OTA updates,
