@@ -146,11 +146,13 @@ let decodeCalib = (val) => {
     console.log(`day = ${day}, time = ${time}, val = ${val}`);
 }
 
-let a = {"t": []};
+let f = (data) => {
+    const [a, b, c] = data;
+    console.log(a, b, c);
+}
 
-console.log(a["t"].length);
-
-
+const b = [22, 33, 44];
+f(b);
 
 
 

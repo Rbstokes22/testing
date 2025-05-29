@@ -79,6 +79,7 @@
             padding: 5px;
             border: 2px solid black;
             text-align: left;
+            white-space: nowrap;
         }
 
         .con {
@@ -118,6 +119,8 @@
             color: white;
         }
         .good {background-color: rgb(0, 224, 27);}
+        .BGup {background-color: rgb(21, 194, 21);}
+        .BGdown {background-color: yellow;}
         
         .dark {
             background-color: black;
@@ -137,6 +140,9 @@
             width: 33px;
         }
         .marker.selected {background: rgb(255, 166, 0);}
+        .reSel {border: 5px solid black};
+
+
             
 
     </style>
@@ -165,18 +171,17 @@
     <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
+    
+    // Before continuing on, Establish some event listeners that test if an
+    // input has changed, and if so, and a button is included, flash that button
+    // green and white or soemthing, just like blinker. Maybe mess around with
+    // all the blinker colors to see what is most pleasing. This should be able
+    // to determine, in the expandEvList, if a button is included, then add the
+    // listener.
 
-    // Code functionality complete. Continute cleaning up code, currently on 
-    // open log. Ensure appropriate sections throughout, like we have been doing.
-    // Handlers, including calibrate time, trends, and all periphs should be 
-    // blocked together. Ensure that the socket stuff is grouped together, I havent
-    // decided if response message handlers should be grouped in with sockets,
-    // but I would imagine the answer is yes. Once comments and code revised,
-    // test with ESP32, and once good, finish up CSS and making things look
-    // prettier. Ensure that we minimize obscurity such as rgb(n, n, n) and 
-    // go to incorporate more classlist adding and removal if feasible, or a way
-    // to centrailize color control.
-
+    // continute code clean, currently at after handleSoil. Copy the rest of
+    // the handlers over. One complete, test with ESP32. Upon successful test,
+    // finish CSS and install to start building.
 
     // Tested on ESP32 with several errors. Made comments on main.cpp, will
     // troubleshoot before continuing on here.
@@ -214,7 +219,7 @@
     const MAX_SPEC_PX = 250; // Max color count pixels.
 
     // Intervals (millis)
-    const POLL_INTV = 1000; // Poll interval to run GET_ALL.
+    const POLL_INTV = 1000; // Poll interval (ms) to run GET_ALL.
     const CHK_OTA_INTV = 86400000; // OTA check run.
     const CLEAR_REQ_INTV = 60000; // Clear exp skt req if non-response.
     const FW_CHECK_INTV = 12 * 60 * 60 * 1000; // Check for new firmware.
@@ -227,7 +232,7 @@
     const logDelim = ';';
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
-    const sensUpBg = ["yellow", "rgb(0, 224, 27)"]; // Sensor up background clr
+    const sensUpBg = ["BGdown", "BGup"]; // Sensor up/down class names.
     let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
     const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
     let reDays = [0, 0, 0, 0]; // Relay day tracker for socket send only.
@@ -366,8 +371,7 @@
 
         } else if (name.includes("re")) { // Relay displays
 
-            RO[name] = new RObuild("div", `Plug #${Number(name[2])}`,
-                ["smallItem", "span4"]); // Displays the relay number, Primary.
+            RO[name] = new RObuild("div", `0`, ["smallItem", "span4"]); 
 
             RO[`${name}ConButtons`] = new RObuild("div", "", 
                 ["smallItem", "span4", "con"]); // button display.
@@ -876,12 +880,27 @@
             // disabled else where, if force off is selected, well until force
             // remove is selected.
             b.enabled = true;
-        
+
             b.onclick = () => {
                 if (!b.enabled) return; // Block if button is disabled.
                 const cmd = convert("RELAY_CTRL");
-                const ID = getID(defResp, {[`${key}`]: Number(b.value)}, 
-                    handleRelays);
+                let newQty = allData[`${key}Qty`]; // Updatable client qty.
+                const bVal = Number(b.value); // Button value.
+                let kvPair = {};
+
+                if (bVal === 1) {newQty++;} 
+                else if (bVal === 0) {newQty--;}
+
+                const isMan = (bVal === 1) ? 1 : 0; // Is manual.
+
+                if ((bVal === 0 && newQty === 0) || (bVal != 0 && newQty > 0)) {
+                    kvPair = {[`${key}`]: bVal, [`${key}Man`]: isMan, 
+                        [`${key}Qty`]: newQty};
+                } else {
+                    kvPair = {[`${key}Man`]: isMan, [`${key}Qty`]: newQty};
+                }
+
+                const ID = getID(defResp, kvPair, handleRelays);
 
                 let output = ((reNum & 0xF) << 4); // Set renum to init
                 output |= (b.value & 0xF); // Set the control value.
@@ -951,7 +970,7 @@
 
             // For input adjustment tools.
             const adj = document.createElement("div");
-            adj.innerText = "Adjustments";
+            adj.innerText = "Click Input Box To Adjust";
             adj.id = `${ID}Adj`;
             adj.className = "span4 smallItem con";
             append(adj);
@@ -1210,7 +1229,7 @@
     // input, the hidden input, the parent container ID, and the associated
     // input data. Adds event listener to inputs to allow adjustment bar use.
     let expandListener = (input, hidden, parent, data) => {
-
+        console.log(data);
         // The adjusted value is passed and the display value will be adjusted
         // as well as the hidden (actual) value if a range map is passed.
         let adjVals = (adjVal) => { 
@@ -1395,23 +1414,6 @@
     // assigned function to handle that response.
     const socketMsg = (event) => handleResponse(JSON.parse(event.data)); 
 
-    // Requires parsed JSOn response from skt. Extracts callback function and
-    // runs if exists. Deletes the request ID upon receiving response. 
-    const handleResponse = (response) => {
-        const func = requestIDs[response.id][0]; // callback function
-    
-        // Check if default response. If so, will send the html element
-        // ID and the value to set it to iff successful. This will handle
-        // most socket responses.
-        if (func === defResp && response.status === 1) { // 1 = success
-            func(requestIDs[response.id][1], requestIDs[response.id][2]);
-        } else if (func != null) { // no resp status returned for non-defResp.
-            func(response); // Used moreso for trends and get all.
-        } // else do nothing as nothing changes.
-
-        delete requestIDs[response.id]; // Delete corresponding ID.
-    }
-
     // Polls the server at a set interval requesting all data.
     const pollServer = () => {
         if (isSocketOpen()) {
@@ -1428,10 +1430,231 @@
     }
 
     // END SOCKET FUNCTIONS. ===================================================
+    // START SOCKET INCOMING RESPONSE FUNCTIONS. ===============================
+    
+    // Requires parsed JSON response from skt. Extracts callback function and
+    // runs if exists. Deletes the request ID upon receiving response. 
+    const handleResponse = (response) => {
+        response.id = Number(response.id); // Explicity convert to number.
+        const func = requestIDs[response.id][0]; 
+    
+        // Check if default response. If so, will send the html element
+        // ID and the value to set it to iff successful. This will handle
+        // most socket responses.
+        if (func === defResp && response.status === 1) { // 1 = success
+            func(requestIDs[response.id][1], requestIDs[response.id][2]);
+        } else if (func != null) { // no resp status returned for non-defResp.
+            func(response); // Used moreso for trends and get all.
+        } // else do nothing as nothing changes.
+
+        delete requestIDs[response.id]; // Delete corresponding ID.
+    }
+
+    // This is called after polling, and responds to all rcvd data.
+    let getAll = (data) => { 
+        allData = data; // Allows use between poll interval waits by copying.
+        
+        calibrateTime(data.sysTime); // Ensures sys clock is calib to client
+
+        // Run all container/peripheral handlers to update if req.
+        handleMain(); handleTempHum(); handleSoil(); handlePhoto();
+        handleSpec(); handleRelays();
+
+        if (data.newLog === 1) getLog(); // Gets log if avail.
+    }
+
+    // Requires the html element ID, and value to update it to. Only runs
+    // upon a successful esp-32 change indicated in socket reply. Changes
+    // innerHTML in the event the value is HTML.
+    let defResp = (KVs = null, CBfunc = null) => { // Default response.
+        if (KVs) Object.keys(KVs).forEach(key => allData[key] = KVs[key]);
+        if (CBfunc) CBfunc(); 
+    };
+
+    // Main container. Updates the RO portion after main poll.
+    let handleMain = () => {
+
+        const units = ['F', 'C']; // Used for unit display.
+        const isCal = ['N', 'Y']; // Used for is time calibrated display.
+
+        document.getElementById("main").innerText = 
+            `Time: ${DAYS[allData["day"]]} @ ${timeStr(allData["sysTime"])} |` +
+            ` Calibrated: ${isCal[allData["timeCalib"]]}`;
+
+        document.getElementById("mainAlt").innerText = `Temp Units: ` +
+            `${units[Number(isCelcius)]} | Version: ${allData["firmv"]}`;
+
+        document.getElementById("mainAvg").innerText = 
+            `Clear Avgs @ ${timeStr(allData["avgClrTime"])}`;
+    }
+
+    // Temperature and humidity containers. Updates the RO portion by
+    // iterating each individual container. Used temp and hum together since
+    // they are nearly identical. 
+    let handleTempHum = () => { 
+
+        // Checks the bounds, and if the temp/hum is out of bounds, adds class.
+        let checkBounds = (data, eleReID, eleAltID) => {
+            const [val, avg, avgPrev, re, reCon, reVal, altCon, altVal] = data;
+
+            // Check that relay is in play and its has a value.
+            if (re != RE_OFF) { 
+                // If true, check that the relay has a setting other than NONE.
+                if (((reCon == 0) && (val < reVal)) ||
+                    ((reCon == 1) && (val > reVal))) {
+
+                    eleReID.classList.add("boundBust");
+                } else {
+                    eleReID.classList.remove("boundBust"); // ensure removal.
+                }
+
+            } else { // Relay off, bounds are out of play.
+                eleReID.classList.remove("boundBust");
+            }
+
+            // Next check that the alert has a setting other than NONE.
+            if (((altCon == 0) && (val < altVal)) ||
+                ((altCon == 1) && (val > altVal))) {
+
+                    eleAltID.classList.add("boundBust");
+                } else {
+                    eleAltID.classList.remove("boundBust");
+                }
+        }
+
+        // Processes data from the allData object, to display the current
+        // settings and values in the RO portion of the tempcon.
+        let proc = (cont, data, name) => {
+            const [val, avg, avgPrev, re, reCon, reVal, altCon, altVal] = data;
+
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const valRO = document.getElementById(IDs[0]);
+            const reRO = document.getElementById(IDs[1]);
+            const altRO = document.getElementById(IDs[2]);
+            const U = isCelcius ? ' C' : ' F'; // Unit.
+
+            // Append units and signs onto name.
+            name = (name === "Temp") ? name += U : name += ' %';
+
+            // Set the text for the RO portions of the tempcon.
+            valRO.innerText = `${name}: ${val.toFixed(1)} |` +
+                ` Avg: ${avg.toFixed(1)} | Prev Avg: ${avgPrev.toFixed(1)}`;
+
+            reRO.innerText = `Plug: ${relayNum(re)} set to` +
+                ` ${reAltCond(reCon, reVal)}`;
+            
+            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
+            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+            parent.classList.add(sensUpBg[allData["SHTUp"]]);
+
+            // Check bounds once processed to ensure correct coloring.
+            checkBounds(data, reRO, altRO);
+        }
+
+        // Changes the temperature the the appropriate value per ESP32 proto.
+        let manipTemp = (data) => { // Do not affect standing values.
+            let [val, avg, avgPrev, re, reCon, reVal, altCon, altVal] = data;
+            reVal /= 100; // reduce int to float
+            altVal /= 100; // reduce int to float
+            const prohibIdx = [3, 4, 6]; // Ignore these indicies in loop.
+
+            if (!isCelcius) { // If units = F, convert to F.
+                data.forEach((item, idx) => {
+                    if (prohibIdx.indexOf(idx) != -1) return; // match, pass.
+                    data[idx] = ((item * 1.8) + 32); // Conv to F.   
+                });
+            }
+        }
+
+        // array with all the temperature data to process.
+        let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
+            allData.tempRe, allData.tempReCond, allData.tempReVal,
+            allData.tempAltCond, allData.tempAltVal];
+
+        manipTemp(data); // Manipulate the temperature before processing.
+        proc(tempCon, data, "Temp");
+
+        // update array with the humidity data to process next.
+        data = [allData.hum, allData.humAvg, allData.humAvgPrev,
+            allData.humRe, allData.humReCond, allData.humReVal,
+            allData.humAltCond, allData.humAltVal];
+
+        proc(humCon, data, "Hum"); 
+    }
+
+    let handleSoil = () => { // Handles all soil containers updating RO.
+        const cont = [soil1Con, soil2Con, soil3Con, soil4Con]; // estab cont.
+
+        // Changes RO display color if value exceeds bounds.
+        let checkBounds = (data, eleAltID) => {
+            const [val, altCon, altVal] = data;
+
+            if (((altCon == 0) && (val < altVal)) ||
+                ((altCon == 1) && (val > altVal))) {
+
+                eleAltID.classList.add("boundBust");
+            } else {
+                eleAltID.classList.remove("boundBust");
+            }
+        }
+
+        // processes data from the allData object, to diplay the current setting
+        // and values in the RO portion of each soilCon.
+        let proc = (cont, data, name) => {
+            const [val, altCon, altVal] = data;
+
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const valRO = document.getElementById(IDs[0]); // main
+            const altRO = document.getElementById(IDs[2]); // alert display
+
+            intensityBar(IDs[1], val, 4095, "red", "black");
+            valRO.innerText = `${name.slice(0, 4)} #${name[4]}: ${val}`;
+            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
+
+            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+            parent.classList.add(sensUpBg[allData[`${name}Up`]]);
+            checkBounds(data, altRO);
+        }
+
+        cont.forEach((sensor, idx) => { // Iterate and process each soil con.
+            const data = [allData[`soil${idx}`], allData[`soil${idx}AltCond`], 
+                allData[`soil${idx}AltVal`]];
+
+            proc(sensor, data, `soil${idx}`);
+        });
+    }
+
+    // CONTINUE HERE !!!!!!!!!!!!.
+
+
+
+    // Pass the current time in seconds from the ESP. If different than
+    // real time, sends socket cmd to calibrate to real time.
+    let calibrateTime = (seconds) => { // calibrates time if different
+        const time = new Date();
+        const padding = 2; // This prevents constant cal w/ rounding err.
+        let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
+            + time.getSeconds();
+
+        // Compute time delta between machine and client.
+        const delta = ((seconds - secPastMid)**2)**(1/2);
+
+        // calibrate clock if esp time out of range. Padding exists to ensure
+        // rounding errors do not prompt a calibration.
+        if (delta >= padding && secPastMid != 0) { 
+            if (!isSocketOpen()) return; // Block
+            socket.send(`${convert("CALIBRATE_TIME")}/${secPastMid}/
+                ${getID(defResp)}`);
+        }
+    }
+
+    // END SOCKET INCOMING RESPONSE FUNCTIONS. =================================
     // START GENERAL FUNCTIONS. ================================================
 
     // Gets the log, separates it into a non-delimited array, to be used
-    // for diplay at the page bottom.
+    // for diplay at the page bottom, which is opened by openLog.
     let getLog = () => { // HTTP call
         const button = document.getElementById("logBut");
         fetch(logURL)
@@ -1453,11 +1676,12 @@
         .catch(err => console.log(err));
     }
 
+    // Opens and closes log in the log display div ele.
     const openLog = () => { // Opens the log for display.
         const button = document.getElementById("logBut");
         const logDisp = document.getElementById("log");
 
-        if (Flags.openLog) {
+        if (Flags.openLog) { // flag serves as a toggle to open and clear.
             let html = "";
             log.forEach(entry => html += `${entry}<br>`);
             logDisp.innerHTML = html;
@@ -1480,24 +1704,7 @@
         socket.send(`${convert("GET_TRENDS")}/${qty}/${getID(setTrends)}`); 
     }
 
-    // Pass the current time in seconds from the ESP. If different than
-    // real time, sends socket cmd to calibrate to real time.
-    let calibrateTime = (seconds) => { // calibrates time if different
-        const time = new Date();
-        const padding = 2; // This prevents constant cal w/ rounding err.
-        let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
-            + time.getSeconds();
-
-        // Compute time delta between machine and client.
-        const delta = ((seconds - secPastMid)**2)**(1/2);
-
-        // calibrate clock if esp time out of range. Ignore midnight switch.
-        if (delta >= padding && secPastMid != 0) { 
-            if (!isSocketOpen()) return; // Block
-            socket.send(`${convert("CALIBRATE_TIME")}/
-            ${secPastMid}/${getID(defResp)}`);
-        }
-    }
+    
 
     // requires the intensity bar ID, the current value, the max value, the
     // starting color, and ending color. Colors the gradient background to show
@@ -1629,149 +1836,13 @@
         } // No data otherwise, do nothing.
     }
 
-    let handleMain = () => {
+   
 
-        const units = ['F', 'C']; // Used for unit display.
-        const isCal = ['N', 'Y']; // Used for is time calibrated display.
+    
 
-        document.getElementById("main").innerText = 
-            `Time: ${timeStr(allData["sysTime"])} | Calibrated: ` +
-            `${isCal[allData["timeCalib"]]}`;
+  
 
-        document.getElementById("mainAlt").innerText = `Temp Units: ` +
-            `${units[Number(isCelcius)]} | Version: ${allData["firmv"]}`;
-
-        document.getElementById("mainAvg").innerText = 
-            `Clear Avgs @ ${timeStr(allData["avgClrTime"])}`;
-    }
-
-    let handleTempHum = () => { // Handles temperature and humidity container.
-
-        // Checks the bounds, and if the temp/hum is out of bounds, adds class.
-        let checkBounds = (data, eleReID, eleAltID) => {
-
-            // Check that relay is in play and its has a value.
-            if (data[3] != RE_OFF) { 
-                // If true, check that the relay has a setting other than NONE.
-                if (((data[4] == 0) && (data[0] < data[5])) ||
-                    ((data[4] == 1) && (data[0] > data[5]))) {
-
-                    eleReID.classList.add("boundBust");
-                } else {
-                    eleReID.classList.remove("boundBust");
-                }
-
-            } else {
-                eleReID.classList.remove("boundBust");
-            }
-
-            // Next check that the alert has a setting other than NONE.
-            if (((data[6] == 0) && (data[0] < data[7])) ||
-                ((data[6] == 1) && (data[0] > data[7]))) {
-
-                    eleAltID.classList.add("boundBust");
-                } else {
-                    eleAltID.classList.remove("boundBust");
-                }
-        }
-
-        // Processes data from the allData object, to display the current
-        // settings and values in the RO portion of the tempcon.
-        let proc = (cont, data, name) => {
-            
-            const parent = document.getElementById(cont.parentID);
-            const IDs = Object.keys(cont.readOnly);
-            const val = document.getElementById(IDs[0]);
-            const re = document.getElementById(IDs[1]);
-            const alt = document.getElementById(IDs[2]);
-            const U = isCelcius ? ' C' : ' F';
-
-            // Append units onto name.
-            name = (name === "Temp") ? name += U : name += ' %';
-
-            // Set the text for the RO portions of the tempcon.
-            val.innerText = `${name}: ${data[0].toFixed(1)} |` +
-                ` Avg: ${data[1].toFixed(1)} |` +
-                ` Prev Avg: ${data[2].toFixed(1)}`;
-
-            re.innerText = `Plug: ${relayNum(data[3])} set to` +
-                ` ${reAltCond(data[4], data[5])}`;
-            
-            alt.innerText = `Alert set to ${reAltCond(data[6], data[7])}`;
-
-            parent.style.backgroundColor = sensUpBg[allData["SHTUp"]];
-            // Check bounds once processed to ensure correct coloring.
-            checkBounds(data, re, alt);
-        }
-
-        // changes the temperature to the correct float value.
-        let manipTemp = (data) => { // Do not affect standing values.
-            data[5] /= 100; // reduce int to float
-            data[7] /= 100; // reduce int to float
-            const prohibIdx = [3, 4, 6]; // Ignore these indicies in loop.
-
-            if (!isCelcius) {
-
-                data.forEach((item, idx) => {
-                    if (prohibIdx.indexOf(idx) != -1) return; // match
-                    data[idx] = ((item * 1.8) + 32); // Conv to F.   
-                });
-            }
-        }
-
-        // array with all the temperature data to process.
-        let data = [allData.temp, allData.tempAvg, allData.tempAvgPrev,
-            allData.tempRe, allData.tempReCond, allData.tempReVal,
-            allData.tempAltCond, allData.tempAltVal];
-
-        manipTemp(data);
-        proc(tempCon, data, "Temp");
-
-        // update array with the humidity data to process.
-        data = [allData.hum, allData.humAvg, allData.humAvgPrev,
-            allData.humRe, allData.humReCond, allData.humReVal,
-            allData.humAltCond, allData.humAltVal];
-
-        proc(humCon, data, "Hum"); 
-    }
-
-    let handleSoil = () => { // Handles all soil containers.
-        const cont = [soil1Con, soil2Con, soil3Con, soil4Con]; // estab cont.
-
-        // Changes RO display color if value exceeds bounds.
-        let checkBounds = (data, eleAltID) => {
-            if (((data[1] == 0) && (data[0] < data[2])) ||
-                ((data[1] == 1) && (data[0] > data[2]))) {
-
-                eleAltID.classList.add("boundBust");
-            } else {
-                eleAltID.classList.remove("boundBust");
-            }
-        }
-
-        // processes data from the allData object, to diplay the current setting
-        // and values in the RO portion of each soilCon.
-        let proc = (cont, data, name) => {
-            const parent = document.getElementById(cont.parentID);
-            const IDs = Object.keys(cont.readOnly);
-            const val = document.getElementById(IDs[0]); // main
-            const alt = document.getElementById(IDs[2]); // alert display
-
-            intensityBar(IDs[1], data[0], 4095, "red", "black");
-            val.innerText = `${name.slice(0, 4)} #${name[4]}: ${data[0]}`;
-            alt.innerText = `Alert set to ${reAltCond(data[1], data[2])}`;
-
-            parent.style.backgroundColor = sensUpBg[allData[`${name}Up`]];
-            checkBounds(data, alt);
-        }
-
-        cont.forEach((sensor, idx) => {
-            let data = [allData[`soil${idx}`], 
-                allData[`soil${idx}AltCond`], allData[`soil${idx}AltVal`]];
-
-            proc(sensor, data, `soil${idx}`);
-        });
-    }
+    // START COPYING OVER.
 
     let handlePhoto = () => {
         
@@ -1817,7 +1888,8 @@
             dur.innerText = `Light duration: ${timeStr(data[6])}`;
             dark.innerText = `Dark val set to ${data[7]}`;
 
-            parent.style.backgroundColor = sensUpBg[allData.photoUp];
+            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+            parent.classList.add(sensUpBg[allData["photoUp"]]);
             checkBounds(data, re, dark, dur);
         }
 
@@ -1831,6 +1903,7 @@
     let handleSpec = () => {
         const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
         const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"}; // For JSON key
+        const parent = document.getElementById("specCon");
 
         specButtonIDs.forEach(ID => {
             const e = document.getElementById(ID);
@@ -1883,8 +1956,8 @@
             bar.style.width = `${width}px`;
         });
 
-        document.getElementById("specCon").style.backgroundColor =
-            sensUpBg[allData.specUp];
+        sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+        parent.classList.add(sensUpBg[allData["specUp"]]);
     }
 
     const handleRelays = () => {
@@ -1896,11 +1969,17 @@
             // Button stuff. Used to handle the force off function primarily.
             const reVal = Number(allData[`re${idx}`]);
             const dayVal = Number(allData[`re${idx}Days`]);
+            const isMan = Number(allData[`re${idx}Man`]); // is manually on.
+            const cliQty = Number(allData[`re${idx}Qty`]); // clients using.
             const off = document.getElementById(`re${idx}ConBut0`);
             const on = document.getElementById(`re${idx}ConBut1`);
             const forceOff = document.getElementById(`re${idx}ConBut2`);
             const forceRem = document.getElementById(`re${idx}ConBut3`);
             const days = document.getElementById(`re${idx}Days`);
+            
+            // Primary element. Update with clients using relay.
+            const eleRO = document.getElementById(`re${idx}`);
+            eleRO.innerText = `Plug #${idx} Clients: ${cliQty}`;
 
             // Set the RO display to show days set.
             let dayStr = "Days: ";
@@ -1913,34 +1992,51 @@
             dayStr = dayStr.slice(0, dayStr.length - 3); // Del trailing delim.
             days.innerText = dayStr;
 
-            if (reVal === 2) { // Force off, disable all except force remove.
-                off.enabled = false;
-                on.enabled = false;
-                forceOff.enabled = false;
-                
-                if (!forceRem.interval) { // Flash indicating must be clicked.
+            let handleSel = (activeSel) => { // Change class only for sel but.
+                [off, on, forceOff, forceRem].forEach(but => {
+                    if (but === activeSel) {
+                        but.classList.add("selected");
+                    } else {
+                        but.classList.remove("selected");
+                    }
+                });
+            }
+
+            switch (reVal) { // Adjusts the classes based on button selection.
+                case 0: handleSel(off); break; // Relay is off
+                case 1: handleSel(isMan ? on : off); break; // Relay is on.
+     
+                case 2: // Force off, disable all except force remove.
+                off.enabled = on.enabled = forceOff.enabled = false;
+                handleSel(forceOff);
+         
+                if (!forceRem.interval) { // Flashes, indicating must click
                     forceRem.interval = setInterval(() => {
                         forceRem.classList.toggle("blinker");
                     }, 500);
                 }
+                break; 
 
-            } else if (reVal === 3) { // Force removed, all reenabled.
-                off.enabled = true;
-                on.enabled = true;
-                forceOff.enabled = true;
+                case 3: // Force off is removed, re-enable all.
+                off.enabled = on.enabled = forceOff.enabled = true;
+                handleSel(forceRem);
+
                 if (forceRem.interval) { // If interval, remove it.
                     clearInterval(forceRem.interval);
                     forceRem.classList.remove("blinker"); // Remove if set.
                 }
+                break;
             }
 
-            for (let i = 0; i < 4; i++) { // Iterate through each button
+            // Iterate each button, if the relay value is the button value,
+            // add class. Remove class if false.
+            for (let i = 0; i < 4; i++) { 
                 const but = document.getElementById(`re${idx}ConBut${i}`);
 
                 if (reVal === i) {
-                    but.classList.add("selected");
+                    but.classList.add("reSel");
                 } else {
-                    but.classList.remove("selected");
+                    but.classList.remove("reSel");
                 }
             }
 
@@ -1961,27 +2057,9 @@
 
     // RECEIVED MESSAGE HANDLERS
 
-    // Once all data is req in polling, calls this with reply.
-    let getAll = (data) => { // Sets the addData object to response
-        allData = data; // Allows use between poll interval waits
-        
-        const title = document.getElementById("title");
-        title.innerHTML = `MysteryGraph Greenhouse`;
+    
 
-        calibrateTime(data.sysTime); // Ensures sys clock is calib to client
-        handleMain(); handleTempHum(); handleSoil(); handlePhoto();
-        handleSpec(); handleRelays();
-
-        if (data.newLog === 1) getLog(); // Gets log if avail
-    }
-
-    // Requires the html element ID, and value to update it to. Only runs
-    // upon a successful esp-32 change indicated in socket reply. Changes
-    // innerHTML in the event the value is HTML.
-    let defResp = (KVs = null, CBfunc = null) => { // Default response.
-        if (KVs) Object.keys(KVs).forEach(key => allData[key] = KVs[key]);
-        if (CBfunc) CBfunc(); 
-    };
+    
 
     // Set the trends when received back from socker server.
     let setTrends = (data) => {

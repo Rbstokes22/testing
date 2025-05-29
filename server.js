@@ -35,10 +35,12 @@ let allData = {
     "firmv": "1.0.0", "id": "1", "newLog": 0, "sysTime": 13683, "hhmmss": "3:48:3",
     "day": 1, "timeCalib": 0, 
     "re0": 0, "re0TimerEn": 0, "re0TimerOn": 99999, "re0TimerOff": 99999,
-    "re1": 0, "re1TimerEn": 0, "re1TimerOn": 99999, "re1TimerOff": 99999, 
+    "re1": 1, "re1TimerEn": 0, "re1TimerOn": 99999, "re1TimerOff": 99999, 
     "re2": 0, "re2TimerEn": 0, "re2TimerOn": 99999, "re2TimerOff": 99999, 
     "re3": 0, "re3TimerEn": 0, "re3TimerOn": 99999, "re3TimerOff": 99999, 
     "re0Days": 4, "re1Days": 7,"re2Days": 46, "re3Days": 22,
+    "re0Qty": 0, "re1Qty": 1,"re2Qty": 0, "re3Qty": 0,
+    "re0Man": 0, "re1Man": 0,"re2Man": 0, "re3Man": 0,
     "temp": 25.87, "tempRe": 255, "tempReCond": 2,
     "tempReVal": 0, "tempAltCond": 2, "tempAltVal": 0, "hum": 54.03,
     "humRe": 255, "humReCond": 0, "humReVal": 2, "humAltCond": 2,
@@ -138,7 +140,29 @@ const process = (CMD, clientID) => {
             case "RELAY_CTRL": {
             let reNum = (val >> 4) & 0b1111;
             let cmd = (val & 0b1111);
-            allData[`re${reNum}`] = cmd;
+            let newQty = allData[`re${reNum}Qty`];
+
+            // If command is set to shut off, check current qty first
+            if (cmd === 0 && newQty === 0) {
+                allData[`re${reNum}`] = cmd;
+            } else if (cmd != 0 && newQty > 0) {
+                allData[`re${reNum}`] = cmd;
+            }
+            
+            allData[`re${reNum}Man`] = (cmd == 1) ? 1 : 0;
+
+            if (cmd === 1) { // Do not worry about bounds here.
+                newQty++;
+            } else if (cmd === 0) {
+                newQty--;
+            }
+
+            allData[`re${reNum}Qty`] = newQty;
+
+            if ((cmd === 0 && newQty === 0) || (cmd != 0 && newQty > 0)) {
+                allData[`re${reNum}`] = cmd;
+            }
+          
             console.log(`RN-${reNum} C-${cmd}`);
             json = {"status":1, "id": `${CMD[2]}`};
             clientSocket.send(JSON.stringify(json));
@@ -373,4 +397,5 @@ app.post("/Alerts", (req, res) => {
 
 server.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`);
+    console.log(`AllData approx len = ${JSON.stringify(allData).length}`);
 });
