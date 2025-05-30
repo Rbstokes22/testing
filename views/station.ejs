@@ -79,8 +79,8 @@
             padding: 5px;
             border: 2px solid black;
             text-align: left;
-            white-space: nowrap;
         }
+        .adjBar {white-space: nowrap;}
 
         .con {
             display: grid;
@@ -122,11 +122,10 @@
         .BGup {background-color: rgb(21, 194, 21);}
         .BGdown {background-color: yellow;}
         
-        .dark {
-            background-color: black;
-            color: white;
-        }
+        .dark {background-color: black; color: yellow;}
+        .light {background-color: yellow;}
         .blinker {background-color: red; color: white; font-weight: 900;}
+        .blinkerMild {background-color: yellow; font-weight: 900;}
         .intensityBar {
             position: relative;
             height: 20px;
@@ -141,10 +140,6 @@
         }
         .marker.selected {background: rgb(255, 166, 0);}
         .reSel {border: 5px solid black};
-
-
-            
-
     </style>
 </head>
 <body onload="loadPage()">
@@ -165,23 +160,23 @@
         <div id="re2Con" class="item"></div>
         <div id="re3Con" class="item"></div>
     </div> <!-- contains all periph containers-->
-    <button class="logFWbut" onclick="saveReset()">Save & Reset</button>
+    <button id="SR" class="logFWbut" onclick="saveReset()">Save & Reset</button>
     <div id="log"></div>
 
     <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
-    
-    // Before continuing on, Establish some event listeners that test if an
-    // input has changed, and if so, and a button is included, flash that button
-    // green and white or soemthing, just like blinker. Maybe mess around with
-    // all the blinker colors to see what is most pleasing. This should be able
-    // to determine, in the expandEvList, if a button is included, then add the
-    // listener.
 
-    // continute code clean, currently at after handleSoil. Copy the rest of
-    // the handlers over. One complete, test with ESP32. Upon successful test,
-    // finish CSS and install to start building.
+    // Complete with code functionality. Everything works and is commented.
+    // Requires testing with ESP. Once test complete, adjust CSS to make better
+    // and strip comments before adding to device. Create a global that can
+    // be added somewhere that will prevent functionality of net based stuff if
+    // in WAP mode. This will block any external checks for FW and alerts. On 
+    // the ESP side we can just have 1 giant html rendered with a break where
+    // the global is added based on the setting. This is for after a successful
+    // install.
+    
+
 
     // Tested on ESP32 with several errors. Made comments on main.cpp, will
     // troubleshoot before continuing on here.
@@ -201,9 +196,6 @@
     const logURL = `${URLprotocol}://${URLbody}/getLog`;
     const webSktURL = `ws://${URLbody}/ws`;
     // const webSktURL = "ws://greenhouse.local/ws"; // Testing only on actual device without upload.
-
-    // Elements
-    const OTAdisp = document.getElementById("otaUpd");
 
     // Key names are colors that correspond with the JSON socket data. arr[0]
     // is the wavelength, arr[1] is the display bar color, and arr[2] is the 
@@ -972,12 +964,12 @@
             const adj = document.createElement("div");
             adj.innerText = "Click Input Box To Adjust";
             adj.id = `${ID}Adj`;
-            adj.className = "span4 smallItem con";
+            adj.className = "span4 smallItem con adjBar";
             append(adj);
 
             button.innerText = "Contract"; // acts as a toggle and display.
             button.interval = setInterval(() => { // Allows blinking
-                button.classList.toggle("blinker");
+                button.classList.toggle("blinkerMild");
             }, 500);
 
         } else if (button.innerText === "Contract") { 
@@ -986,7 +978,7 @@
             Expansions[ID].forEach(id => document.getElementById(id).remove());
             button.innerText = "Expand";
             clearInterval(button.interval);
-            button.classList.remove("blinker");
+            button.classList.remove("blinkerMild");
 
             // Special rules to default the display to a set string.
             if (container.parentID === "specCon") { 
@@ -1229,7 +1221,7 @@
     // input, the hidden input, the parent container ID, and the associated
     // input data. Adds event listener to inputs to allow adjustment bar use.
     let expandListener = (input, hidden, parent, data) => {
-        console.log(data);
+    
         // The adjusted value is passed and the display value will be adjusted
         // as well as the hidden (actual) value if a range map is passed.
         let adjVals = (adjVal) => { 
@@ -1471,6 +1463,26 @@
         if (CBfunc) CBfunc(); 
     };
 
+    // Pass the current time in seconds from the ESP. If different than
+    // real time, sends socket cmd to calibrate to real time.
+    let calibrateTime = (seconds) => { // calibrates time if different
+        const time = new Date();
+        const padding = 2; // This prevents constant cal w/ rounding err.
+        let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
+            + time.getSeconds();
+
+        // Compute time delta between machine and client.
+        const delta = ((seconds - secPastMid)**2)**(1/2);
+
+        // calibrate clock if esp time out of range. Padding exists to ensure
+        // rounding errors do not prompt a calibration.
+        if (delta >= padding && secPastMid != 0) { 
+            if (!isSocketOpen()) return; // Block
+            socket.send(`${convert("CALIBRATE_TIME")}/${secPastMid}/
+                ${getID(defResp)}`);
+        }
+    }
+
     // Main container. Updates the RO portion after main poll.
     let handleMain = () => {
 
@@ -1626,28 +1638,220 @@
         });
     }
 
-    // CONTINUE HERE !!!!!!!!!!!!.
+    // Handles the photo/light container using the photoresistor. 
+    let handlePhoto = () => {
+        
+        let checkBounds = (data, eleReID, darkID, durID) => {
+            const [val, avg, avgPrev, re, reCon, reVal, dur, dark] = data;
 
+            // Check the relay is in play nad has a value.
+            if (re != RE_OFF) {
+                if (((reCon == 0) && (val < reVal)) || 
+                    ((reCon == 1) && (val > reVal))) {
 
+                    eleReID.classList.add("boundBust");
+                } else {
+                    eleReID.classList.remove("boundBust");
+                }
+            }
 
-    // Pass the current time in seconds from the ESP. If different than
-    // real time, sends socket cmd to calibrate to real time.
-    let calibrateTime = (seconds) => { // calibrates time if different
-        const time = new Date();
-        const padding = 2; // This prevents constant cal w/ rounding err.
-        let secPastMid = (time.getHours() * 3600) + (time.getMinutes() * 60) 
-            + time.getSeconds();
+            const isDark = val < dark; // Used to change display BG color.
+            darkID.classList.toggle("dark", isDark);
+            darkID.classList.toggle("light", !isDark);
+            durID.classList.toggle("dark", isDark);
+            durID.classList.toggle("light", !isDark);
+        } 
 
-        // Compute time delta between machine and client.
-        const delta = ((seconds - secPastMid)**2)**(1/2);
+        let proc = (cont, data, name) => { // Process all container data.
+            const [val, avg, avgPrev, re, reCon, reVal, dur, dark] = data;
 
-        // calibrate clock if esp time out of range. Padding exists to ensure
-        // rounding errors do not prompt a calibration.
-        if (delta >= padding && secPastMid != 0) { 
-            if (!isSocketOpen()) return; // Block
-            socket.send(`${convert("CALIBRATE_TIME")}/${secPastMid}/
-                ${getID(defResp)}`);
+            const parent = document.getElementById(cont.parentID);
+            const IDs = Object.keys(cont.readOnly);
+            const valRO = document.getElementById(IDs[0]); // main
+            const reRO = document.getElementById(IDs[2]); // relay info
+            const durRO = document.getElementById(IDs[3]); // duraiton info
+            const darkRO = document.getElementById(IDs[4]) // dark info
+            const barWidth = intensityBar.offsetWidth; // inten bar width
+            const pxStop = Number(data[0]) / 4095 * Number(barWidth);
+
+            intensityBar(IDs[1], val, 4095, "red", "black");
+           
+            valRO.innerText = `${name}: ${val} | Avg: ${avg.toFixed(1)}` +
+                ` | Prev Avg: ${avgPrev.toFixed(1)}`;
+
+            reRO.innerText = `Plug: ${relayNum(re)} set to` +
+                ` ${reAltCond(reCon, reVal)}`;
+
+            durRO.innerText = `Light duration: ${timeStr(dur)}`;
+            darkRO.innerText = `Dark val set to ${dark}`;
+
+            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+            parent.classList.add(sensUpBg[allData["photoUp"]]);
+            checkBounds(data, re, darkRO, durRO);
         }
+
+        const data = [allData.photo, allData.photoAvg, allData.photoAvgPrev,
+            allData.lightRe, allData.lightReCond, allData.lightReVal,
+            allData.lightDur, allData.darkVal];
+
+        proc(lightCon, data, "Light");
+    }
+
+    let handleSpec = () => { // Handles all spectrometry container activity.
+        const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
+        const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"}; // For JSON key
+        const parent = document.getElementById("specCon");
+
+        specButtonIDs.forEach(ID => { // Iterate and apply class to selected but
+            const e = document.getElementById(ID);
+
+            if (ID[0] === specDisplay) { // first char, Global variable
+                e.classList.add("selected");
+            } else {
+                e.classList.remove("selected");
+            }
+        });
+
+        let counts = {}; // Used to gather all counts for comparison.
+        let maxCt = 1; // Default to 1, no reason behind this value.
+        let maxClr = null; // Max count color.
+
+        // Iterate to append counts with each color count. Depending on the
+        // selected current, avg, or prev avg, the specMap is used to append 
+        // the color with the right json key, with the counts being the value.
+        Object.keys(COLORS).forEach(color => {
+            const ctVal = allData[`${color}${specMap[specDisplay]}`];
+            counts[color] = ctVal;
+
+            // Set max count, and ignore clear, since its value will skew data.
+            // Set color to the one with the highest value.
+            maxClr = ((ctVal > maxCt) && (color != "clear")) ? color : maxClr;
+            maxCt = ((ctVal > maxCt) && (color != "clear")) ? ctVal : maxCt;
+            
+        });
+
+        const ctPerPix = maxCt / MAX_SPEC_PX; // Counts per pixel.
+
+        // Iterates the counts and assigns a pixed value to each. The highest
+        // val will be at ~250 px, and the rest will be relative to it.
+        Object.keys(counts).forEach(color => {
+            const bar = document.getElementById(color);
+            bar.value = counts[color];
+            let width = Math.floor(counts[color] / ctPerPix); // Initial width
+
+            // Set width not to exceed max.
+            width = width > MAX_SPEC_PX ? MAX_SPEC_PX : width; 
+
+            // Displays the count value in the largest bar as a reference for
+            // the others.
+            if (color === maxClr || color === "clear") { // d
+                document.getElementById(color).innerText = 
+                    `${(counts[color] / 655.35).toFixed(2)}% of Max`;
+            } else { // Remove text from rest.
+                document.getElementById(color).innerText = "";
+            }
+
+            bar.style.width = `${width}px`;
+        });
+
+        sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
+        parent.classList.add(sensUpBg[allData["specUp"]]);
+    }
+
+    const handleRelays = () => { // Handles all relay containers and activity.
+        const cont = [re1Con, re2Con, re3Con, re4Con]; // containers
+        
+        // Ensure the same naming convention as buildRelayButtons().
+        cont.forEach((re, idx) => {
+
+            // Button stuff. Used to handle the force off function primarily.
+            const reVal = Number(allData[`re${idx}`]); // relay value.
+            const dayVal = Number(allData[`re${idx}Days`]); // day value
+            const isMan = Number(allData[`re${idx}Man`]); // is manually on.
+            const cliQty = Number(allData[`re${idx}Qty`]); // clients using.
+            const off = document.getElementById(`re${idx}ConBut0`);
+            const on = document.getElementById(`re${idx}ConBut1`);
+            const forceOff = document.getElementById(`re${idx}ConBut2`);
+            const forceRem = document.getElementById(`re${idx}ConBut3`);
+            const days = document.getElementById(`re${idx}Days`);
+            
+            // Primary element. Update with clients using relay.
+            const eleRO = document.getElementById(`re${idx}`);
+            eleRO.innerText = `Plug #${idx} Clients: ${cliQty}`;
+
+            // Set the RO display to show days timer is set.
+            let dayStr = "Days: ";
+
+            for (let i = 0; i < 7; i++) { // Bitwise settings to extract day.
+                const isSet = (dayVal >> i) & 0b1;
+                if (isSet) dayStr += `${DAYS[i]} | `;
+            }
+
+            dayStr = dayStr.slice(0, dayStr.length - 3); // Del trailing delim.
+            days.innerText = dayStr;
+
+            let handleSel = (activeSel) => { // Change class only for sel but.
+                [off, on, forceOff, forceRem].forEach(but => {
+                    if (but === activeSel) {
+                        but.classList.add("selected");
+                    } else {
+                        but.classList.remove("selected");
+                    }
+                });
+            }
+
+            switch (reVal) { // Adjusts the classes based on button selection.
+                case 0: handleSel(off); break; // Relay is off
+                case 1: handleSel(isMan ? on : off); break; // Relay is on.
+     
+                case 2: // Force off, disable all except force remove.
+                off.enabled = on.enabled = forceOff.enabled = false;
+                handleSel(forceOff);
+         
+                if (!forceRem.interval) { // Flashes, indicating must click
+                    forceRem.interval = setInterval(() => {
+                        forceRem.classList.toggle("blinker");
+                    }, 500);
+                }
+                break; 
+
+                case 3: // Force off is removed, re-enable all.
+                off.enabled = on.enabled = forceOff.enabled = true;
+                handleSel(forceRem);
+
+                if (forceRem.interval) { // If interval, remove it.
+                    clearInterval(forceRem.interval);
+                    forceRem.classList.remove("blinker"); // Remove if set.
+                }
+                break;
+            }
+
+            // Iterate each button, if the relay value is the button value,
+            // add class. Remove class if false.
+            for (let i = 0; i < 4; i++) { 
+                const but = document.getElementById(`re${idx}ConBut${i}`);
+
+                if (reVal === i) {
+                    but.classList.add("reSel");
+                } else {
+                    but.classList.remove("reSel");
+                }
+            }
+
+            const IDs = Object.keys(re.readOnly);
+            const RO = document.getElementById(IDs[2]); // 3rd RO box.
+            const reTmrEn = allData[`re${idx}TimerEn`]; // relay timer enabled?
+            const reTmrOn = allData[`re${idx}TimerOn`]; // relay timer on time.
+            const reTmrOff = allData[`re${idx}TimerOff`]; // relay timer off tm.
+
+            if (reTmrEn) { // Is timer enabled.
+                RO.innerText = `Timer set from ${timeStr(reTmrOn)} to ` +
+                    `${timeStr(reTmrOff)}`;
+
+            } else { // Not enabled.
+                RO.innerText = `Timer Disabled`;
+            }
+        });
     }
 
     // END SOCKET INCOMING RESPONSE FUNCTIONS. =================================
@@ -1703,8 +1907,6 @@
         qty = (qty < 1 || qty > 12) ? 6 : qty; // Ensure within bounds, def set.
         socket.send(`${convert("GET_TRENDS")}/${qty}/${getID(setTrends)}`); 
     }
-
-    
 
     // requires the intensity bar ID, the current value, the max value, the
     // starting color, and ending color. Colors the gradient background to show
@@ -1836,231 +2038,6 @@
         } // No data otherwise, do nothing.
     }
 
-   
-
-    
-
-  
-
-    // START COPYING OVER.
-
-    let handlePhoto = () => {
-        
-        let checkBounds = (data, eleReID, darkID, durID) => {
-            // Check the relay is in play nad has a value.
-            if (data[3] != RE_OFF) {
-                if (((data[4] == 0) && (data[0] < data[5])) || 
-                    ((data[4] == 1) && (data[0] > data[5]))) {
-
-                    eleReID.classList.add("boundBust");
-                } else {
-                    eleReID.classList.remove("boundBust");
-                }
-            }
-
-            if (data[0] < data[7]) {
-                darkID.classList.add("dark");
-                durID.classList.add("dark");
-            } else {
-                darkID.classList.remove("dark");
-                durID.classList.remove("dark");
-            }
-        } 
-
-        let proc = (cont, data, name) => {
-            const parent = document.getElementById(cont.parentID);
-            const IDs = Object.keys(cont.readOnly);
-            const val = document.getElementById(IDs[0]); // main
-            const re = document.getElementById(IDs[2]); // relay info
-            const dur = document.getElementById(IDs[3]); // duraiton info
-            const dark = document.getElementById(IDs[4]) // dark info
-            const barWidth = intensityBar.offsetWidth; // inten bar width
-            const pxStop = Number(data[0]) / 4095 * Number(barWidth);
-
-            intensityBar(IDs[1], data[0], 4095, "red", "black");
-           
-            val.innerText = `${name}: ${data[0]} | Avg: ${data[1].toFixed(1)}` +
-                ` | Prev Avg: ${data[2].toFixed(1)}`;
-
-            re.innerText = `Plug: ${relayNum(data[3])} set to` +
-                ` ${reAltCond(data[4], data[5])}`;
-
-            dur.innerText = `Light duration: ${timeStr(data[6])}`;
-            dark.innerText = `Dark val set to ${data[7]}`;
-
-            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-            parent.classList.add(sensUpBg[allData["photoUp"]]);
-            checkBounds(data, re, dark, dur);
-        }
-
-        const data = [allData.photo, allData.photoAvg, allData.photoAvgPrev,
-            allData.lightRe, allData.lightReCond, allData.lightReVal,
-            allData.lightDur, allData.darkVal];
-
-        proc(lightCon, data, "Light");
-    }
-
-    let handleSpec = () => {
-        const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
-        const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"}; // For JSON key
-        const parent = document.getElementById("specCon");
-
-        specButtonIDs.forEach(ID => {
-            const e = document.getElementById(ID);
-            if (ID[0] === specDisplay) { // first char
-                e.classList.add("selected");
-            } else {
-                e.classList.remove("selected");
-            }
-        });
-
-        let counts = {}; // Used to gather all counts for comparison.
-        let maxCt = 1;
-        let maxClr = null;
-
-        // Iterate to append counts with each color count. Depending on the
-        // selected current, avg, or prev avg, the specMap is used to append 
-        // the color with the right json key, with the counts being the value.
-        Object.keys(COLORS).forEach(color => {
-            const ctVal = allData[`${color}${specMap[specDisplay]}`];
-            counts[color] = ctVal;
-
-            // Set max count, and ignore clear, since its height will skew data.
-            // Set color to the one with the highest value.
-            maxClr = ((ctVal > maxCt) && (color != "clear")) ? color : maxClr;
-            maxCt = ((ctVal > maxCt) && (color != "clear")) ? ctVal : maxCt;
-            
-        });
-
-        const ctPerPix = maxCt / MAX_SPEC_PX; // Counts per pixel.
-
-        // Iterates the counts and assigns a pixed value to each. The highest
-        // val will be at ~300 px, and the rest will be relative.
-        Object.keys(counts).forEach(color => {
-            const bar = document.getElementById(color);
-            bar.value = counts[color];
-            let width = Math.floor(counts[color] / ctPerPix); // Initial width
-
-            // Set width not to exceed max.
-            width = width > MAX_SPEC_PX ? MAX_SPEC_PX : width; 
-
-            // Displays the count value in the largest bar as a reference for
-            // the others.
-            if (color === maxClr || color === "clear") { // d
-                document.getElementById(color).innerText = 
-                    `${(counts[color] / 655.35).toFixed(2)}% of Max`;
-            } else { // Remove text from rest.
-                document.getElementById(color).innerText = "";
-            }
-
-            bar.style.width = `${width}px`;
-        });
-
-        sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-        parent.classList.add(sensUpBg[allData["specUp"]]);
-    }
-
-    const handleRelays = () => {
-        const cont = [re1Con, re2Con, re3Con, re4Con]; // containers
-        
-        // Ensure the same naming convention as buildRelayButtons().
-        cont.forEach((re, idx) => {
-
-            // Button stuff. Used to handle the force off function primarily.
-            const reVal = Number(allData[`re${idx}`]);
-            const dayVal = Number(allData[`re${idx}Days`]);
-            const isMan = Number(allData[`re${idx}Man`]); // is manually on.
-            const cliQty = Number(allData[`re${idx}Qty`]); // clients using.
-            const off = document.getElementById(`re${idx}ConBut0`);
-            const on = document.getElementById(`re${idx}ConBut1`);
-            const forceOff = document.getElementById(`re${idx}ConBut2`);
-            const forceRem = document.getElementById(`re${idx}ConBut3`);
-            const days = document.getElementById(`re${idx}Days`);
-            
-            // Primary element. Update with clients using relay.
-            const eleRO = document.getElementById(`re${idx}`);
-            eleRO.innerText = `Plug #${idx} Clients: ${cliQty}`;
-
-            // Set the RO display to show days set.
-            let dayStr = "Days: ";
-
-            for (let i = 0; i < 7; i++) { // Bitwise settings to extract day.
-                const isSet = (dayVal >> i) & 0b1;
-                if (isSet) dayStr += `${DAYS[i]} | `;
-            }
-
-            dayStr = dayStr.slice(0, dayStr.length - 3); // Del trailing delim.
-            days.innerText = dayStr;
-
-            let handleSel = (activeSel) => { // Change class only for sel but.
-                [off, on, forceOff, forceRem].forEach(but => {
-                    if (but === activeSel) {
-                        but.classList.add("selected");
-                    } else {
-                        but.classList.remove("selected");
-                    }
-                });
-            }
-
-            switch (reVal) { // Adjusts the classes based on button selection.
-                case 0: handleSel(off); break; // Relay is off
-                case 1: handleSel(isMan ? on : off); break; // Relay is on.
-     
-                case 2: // Force off, disable all except force remove.
-                off.enabled = on.enabled = forceOff.enabled = false;
-                handleSel(forceOff);
-         
-                if (!forceRem.interval) { // Flashes, indicating must click
-                    forceRem.interval = setInterval(() => {
-                        forceRem.classList.toggle("blinker");
-                    }, 500);
-                }
-                break; 
-
-                case 3: // Force off is removed, re-enable all.
-                off.enabled = on.enabled = forceOff.enabled = true;
-                handleSel(forceRem);
-
-                if (forceRem.interval) { // If interval, remove it.
-                    clearInterval(forceRem.interval);
-                    forceRem.classList.remove("blinker"); // Remove if set.
-                }
-                break;
-            }
-
-            // Iterate each button, if the relay value is the button value,
-            // add class. Remove class if false.
-            for (let i = 0; i < 4; i++) { 
-                const but = document.getElementById(`re${idx}ConBut${i}`);
-
-                if (reVal === i) {
-                    but.classList.add("reSel");
-                } else {
-                    but.classList.remove("reSel");
-                }
-            }
-
-            const IDs = Object.keys(re.readOnly);
-            const RO = document.getElementById(IDs[2]); // 3rd RO box.
-            const reTmrEn = allData[`re${idx}TimerEn`];
-            const reTmrOn = allData[`re${idx}TimerOn`];
-            const reTmrOff = allData[`re${idx}TimerOff`];
-
-            if (reTmrEn) {
-                RO.innerText = `Timer set from ${timeStr(reTmrOn)} to ` +
-                    `${timeStr(reTmrOff)}`;
-            } else {
-                RO.innerText = `Timer Disabled`;
-            }
-        });
-    }
-
-    // RECEIVED MESSAGE HANDLERS
-
-    
-
-    
-
     // Set the trends when received back from socker server.
     let setTrends = (data) => {
         const parent = document.getElementById("trendDisp");
@@ -2084,7 +2061,7 @@
             parent.appendChild(content);
 
             let str = "";
-            data[key].forEach((val, idx)=> {
+            data[key].forEach((val, idx)=> { // Iterate and concat values.
                 str += `[${val}] , `;
             });
 
@@ -2099,8 +2076,10 @@
         parent.appendChild(close);
     }
 
+    // Relay number is used to display the appropriate value to input, which is
+    // a number or NONE. Display purposes only.
     let relayNum = (val) => val === RE_OFF ? "NONE" : Number(val);
-    let reAltCond = (cond, val) => {
+    let reAltCond = (cond, val) => { // Used for RO display for cont w/ relays.
         const textConv = ["<", ">", "NONE"];
         if (cond == 2) return textConv[cond];
         return `${textConv[cond]} ${val.toFixed(1)}`;
@@ -2115,10 +2094,11 @@
         .then(res => res.json())
         .then(res => {
             const {version} = res;
+            const OTAdisp = document.getElementById("otaUpd");
+            // All array items are what is expected from esp32 server.
             const noActionResp = ["Invalid JSON", "match", "wap", 
                 "Connection open fail", "Connection init fail"];
                 
-
             // If -1, means that there is an actual value, so the update
             // should be available in button form.
             if (noActionResp.indexOf(version) == -1) {
@@ -2142,35 +2122,47 @@
         const URL = `${URLprotocol}://${URLbody}/OTAUpdate?url=${firURL}
             &sigurl=${sigURL}`;
 
-        let updHTML = OTAdisp.innerHTML;
+        const OTAbutton = document.getElementById("FWbut");
+        const OTAdisp = document.getElementById("otaUpd");
 
         fetch(URL)
         .then(res => res.json())
         .then(res => {
             const {status} = res;
             if (status === "OK") { // Exp response from the server.
-                let secToReload = 10;
+                let secToReload = 10; // Reloads after firmware update.
                 let intervalID = setInterval(() => { // Countdown to reload
-                    OTAdisp.innerText = `Restarting in ${secToReload--}`;
+                    OTAbutton.innerText = `Restarting in ${secToReload--}`;
                     if (secToReload < 1) {
                         clearInterval(intervalID);
                         window.location.reload();
                     }
                 }, 1000);
+
             } else {
-                updHTML += " (Failed)";
-                OTAdisp.innerHTML = updHTML;
+                window.alert("OTA update failed");
+                OTAdisp.innerText = ""; // Clear out after fail.
             }
         })
         .catch(err => {
-            updHTML += ` (Error)`;
-            OTAdisp.innerHTML = updHTML;
+            window.alert("OTA update error");
+            OTAdisp.innerText = ""; // Clear out after error.
         });
     }
 
-    // Saves and resets the esp32.
+    // Saves and resets the esp32 without countdown to reload window.
     const saveReset = () => {
         socket.send(`${convert("SAVE_AND_RESTART")}/0/${getID()}`);
+        const disp = document.getElementById("SR"); // Save and reset button
+        disp.onclick = ""; // Blocks further clicking until reset.
+        let secToReload = 30; // Reloads after firmware update.
+        let intervalID = setInterval(() => { // Countdown to reload
+            disp.innerText = `Restarting in ${secToReload--}`;
+            if (secToReload < 1) {
+                clearInterval(intervalID);
+                window.location.reload();
+            }
+        }, 1000);
     }
 
     // When called, sets a timeout for 15 sec to check for OTA updates,
@@ -2295,7 +2287,8 @@
     const allCon = [mainCon, tempCon, humCon, soil1Con, soil2Con, soil3Con, 
         soil4Con, lightCon, specCon, re1Con, re2Con, re3Con, re4Con];
 
-    // END CONTAINER OBJECTS. ================================================
+    // END CONTAINER OBJECTS. ==================================================
+    // START OPENERS AND BUILDERS. =============================================
 
     const buildContainers = () => allCon.forEach(con => buildRO(con));
 
@@ -2314,6 +2307,8 @@
         getLog(); // Gets the log when loading the page.
         checkUpdates(); // Starts firmware checking timeout and interval.
     }
+
+    // END OPENERS AND BUILDERS. ===============================================
 
     </script>
     
