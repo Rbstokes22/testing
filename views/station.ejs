@@ -194,8 +194,8 @@
     const URLbody = URLdata[2]; // main url
     const OTAURL = `${URLprotocol}://${URLbody}/OTACheck`; 
     const logURL = `${URLprotocol}://${URLbody}/getLog`;
-    const webSktURL = `ws://${URLbody}/ws`;
-    // const webSktURL = "ws://greenhouse.local/ws"; // Testing only on actual device without upload.
+    // const webSktURL = `ws://${URLbody}/ws`;
+    const webSktURL = "ws://greenhouse.local/ws"; // Testing only on actual device without upload.
 
     // Key names are colors that correspond with the JSON socket data. arr[0]
     // is the wavelength, arr[1] is the display bar color, and arr[2] is the 
@@ -1404,7 +1404,7 @@
 
     // Messages from server will be in JSON format, parsed, and sent to the
     // assigned function to handle that response.
-    const socketMsg = (event) => handleResponse(JSON.parse(event.data)); 
+    const socketMsg = (event) => {handleResponse(JSON.parse(event.data));}
 
     // Polls the server at a set interval requesting all data.
     const pollServer = () => {
@@ -1478,8 +1478,8 @@
         // rounding errors do not prompt a calibration.
         if (delta >= padding && secPastMid != 0) { 
             if (!isSocketOpen()) return; // Block
-            socket.send(`${convert("CALIBRATE_TIME")}/${secPastMid}/
-                ${getID(defResp)}`);
+            socket.send(`${convert("CALIBRATE_TIME")}/${secPastMid}/` +
+                `${getID(defResp)}`);
         }
     }
 
@@ -1780,14 +1780,17 @@
             eleRO.innerText = `Plug #${idx} Clients: ${cliQty}`;
 
             // Set the RO display to show days timer is set.
-            let dayStr = "Days: ";
+            let dayStr = "Days Active: "; let dayLen = dayStr.length;
 
             for (let i = 0; i < 7; i++) { // Bitwise settings to extract day.
                 const isSet = (dayVal >> i) & 0b1;
                 if (isSet) dayStr += `${DAYS[i]} | `;
             }
 
-            dayStr = dayStr.slice(0, dayStr.length - 3); // Del trailing delim.
+            if (dayStr.length > dayLen) { // Delete trail delim iff concat.
+                dayStr = dayStr.slice(0, dayStr.length - 3); 
+            }
+
             days.innerText = dayStr;
 
             let handleSel = (activeSel) => { // Change class only for sel but.
