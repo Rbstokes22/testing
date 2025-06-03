@@ -167,6 +167,16 @@
 
     <script>
 
+    // TO DO:
+    // Adjust the button enable and disable for the relays. Prevent buttons from
+    // being clicked several times. Made some adjustments, but further investigate
+    // and revise to ensure that when on is clicked, it cant be reclicked. Running
+    // into some issues. When clicking force off, then force rmv, I can only click on.
+    // If i click off, it sends the signal but the selection and all of that isnt working
+    // which leads me to believe the problem might be with the esp32. If i click force
+    // rem and then click force off, it sticks and does nothing. Ensure proper change
+    // on the server side before proceedings.
+
     // Complete with code functionality. Everything works and is commented.
     // Requires testing with ESP. Once test complete, adjust CSS to make better
     // and strip comments before adding to device. Create a global that can
@@ -176,8 +186,6 @@
     // the global is added based on the setting. This is for after a successful
     // install.
     
-
-
     // Tested on ESP32 with several errors. Made comments on main.cpp, will
     // troubleshoot before continuing on here.
 
@@ -875,6 +883,7 @@
 
             b.onclick = () => {
                 if (!b.enabled) return; // Block if button is disabled.
+                b.enabled = false; // Prevent a several clicks.
                 const cmd = convert("RELAY_CTRL");
                 let newQty = allData[`${key}Qty`]; // Updatable client qty.
                 const bVal = Number(b.value); // Button value.
@@ -882,6 +891,8 @@
 
                 if (bVal === 1) {newQty++;} 
                 else if (bVal === 0) {newQty--;}
+
+                newQty = newQty < 0 ? 0 : newQty; // Prevent negative values.
 
                 const isMan = (bVal === 1) ? 1 : 0; // Is manual.
 
@@ -1804,8 +1815,17 @@
             }
 
             switch (reVal) { // Adjusts the classes based on button selection.
-                case 0: handleSel(off); break; // Relay is off
-                case 1: handleSel(isMan ? on : off); break; // Relay is on.
+                case 0: // Relay is off, enable all but off.
+                on.enabled = forceOff.enabled = forceRem.enabled = true;
+                handleSel(off); 
+                break; 
+
+                case 1: // Relay is on, enable all but on.
+                forceOff.enabled = forceRem.enabled = true; 
+                off.enabled = isMan ? true : false; // enable if manually on.
+                on.enabled = isMan ? false : true; // enable if off.
+                handleSel(isMan ? on : off); 
+                break; 
      
                 case 2: // Force off, disable all except force remove.
                 off.enabled = on.enabled = forceOff.enabled = false;
@@ -1818,7 +1838,7 @@
                 }
                 break; 
 
-                case 3: // Force off is removed, re-enable all.
+                case 3: // Force off is removed, re-enable all others.
                 off.enabled = on.enabled = forceOff.enabled = true;
                 handleSel(forceRem);
 
