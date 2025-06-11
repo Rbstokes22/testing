@@ -151,8 +151,13 @@ let f = (data) => {
     console.log(a, b, c);
 }
 
-const b = [22, 33, 44];
-f(b);
+const days = [0, 1, 2, 3, 4, 5, 6];
+
+days.forEach(day => {
+    let D = day;
+    D = (D === 0) ? 6 : D - 1;
+    console.log(D);
+})
 
 
 
