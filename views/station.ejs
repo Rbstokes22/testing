@@ -69,15 +69,18 @@
         }
 
         .item {
-            background-color: rgb(128, 251, 255);
+            background-color: rgb(85, 107, 47);
+            color: white;
             padding: 20px;
             text-align: left;
-            border: 2px solid black;
+            border: 2px solid rgb(0, 0, 0);
+            border-radius: 5px;
         }
 
         .smallItem {
             padding: 5px;
-            border: 2px solid black;
+            border: 2px solid rgb(255, 255, 255);
+            border-radius: 5px;
             text-align: left;
         }
         .adjBar {white-space: nowrap;}
@@ -122,8 +125,8 @@
         .BGup {background-color: rgb(21, 194, 21);}
         .BGdown {background-color: yellow;}
         
-        .dark {background-color: black; color: yellow;}
-        .light {background-color: yellow;}
+        .dark {background-color: black; color: yellow; border-color: yellow;}
+        .light {background-color: yellow; color: black; border-color: black;}
         .blinker {background-color: red; color: white; font-weight: 900;}
         .blinkerMild {background-color: yellow; font-weight: 900;}
         .intensityBar {
@@ -169,13 +172,15 @@
 
     // TO DO:
 
+    // Continue adjusting CSS. Change the color of the bars displaying values
+    // for soil to blue, and for photo to yellow. Ensure contrast throughout,
+    // for example trends shows white text with white background, change BG.
+
     // Basic testing went well, build a global that disables certain features
     // from STA mode from using WAP. Ensure that we are able to work that into
     // the cpp side to strcat it in. So a portion of the code, the global,
     // and then the rest. The global will be the cutoff depending on the switch
     // pos. They will both serve the same code, just one disables the functionality.
-
-   
 
     // Complete with code functionality. Everything works and is commented.
     // Requires testing with ESP. Once test complete, adjust CSS to make better
@@ -233,6 +238,7 @@
     const RE_OFF = 255; // Signals relay is not attached.
     let isCelcius = false;
     const sensUpBg = ["BGdown", "BGup"]; // Sensor up/down class names.
+    const sensUpTxt = ["SENSOR DOWN", "SENSOR UP"];
     let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
     const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
     let reDays = [0, 0, 0, 0]; // Relay day tracker for socket send only.
@@ -318,7 +324,7 @@
     // the client to change settings. All params from re to reTimer are 
     // commands that use action buttons. This is a cookie-cutter build method.
     let buildCon = (name, re, reSet, altSet, darkSet, integ, gain, 
-        reTimer, ranges, includeLabel = false) => {
+        reTimer, ranges, includeLabel = false, includeStat = false) => {
         
         let RO = {}, INP = {}; // Read only and Input objects.
 
@@ -329,6 +335,7 @@
 
         // Build all containers depending on the params.
         if (includeLabel) buildConLabel(parent, name);
+        if (includeStat) buildConStat(parent);
         buildConSpecial(name, ranges, RO, INP,); // No commands attached.
         if (re) buildConRelay(re, name, ranges, RO, INP);
         if (reSet) buildConRelaySet(reSet, name, ranges, RO, INP);
@@ -354,6 +361,17 @@
         label.value = (curVal != null) ? curVal : "CUSTOM LABEL/NOTES HERE";
         label.onblur = () => localStorage.setItem(`${name}Label`, label.value);
         parent.appendChild(label);
+    }
+
+    // Requires the parent container. Builds a status bar to show if the sensor
+    // is up or down.
+    let buildConStat = (parent) => {
+        const statBar = document.createElement("div");
+        statBar.id = `${parent.id}Stat`;
+        statBar.className = "smallItem span4";
+        statBar.style.textAlign = "center";
+        statBar.innerText = "Sensor Loading";
+        parent.appendChild(statBar);
     }
 
     // Requires container name, and the Read Only and Input objects. Builds
@@ -743,7 +761,6 @@
         );
     }
 
-  
     // After the container has been constructed using buildCon, it is passed 
     // here which will build the read only portion of each container.
     let buildRO = (container) => {
@@ -1496,7 +1513,6 @@
 
             let output = (secPastMid & 0x1FFFF); // init with sec past midnight.
             output |= ((day & 0b111) << 17);
-            console.log(output);
             socket.send(`${convert("CALIBRATE_TIME")}/${output}/` +
                 `${getID(defResp)}`);
         }
@@ -1559,6 +1575,7 @@
             const [val, avg, avgPrev, re, reCon, reVal, altCon, altVal] = data;
 
             const parent = document.getElementById(cont.parentID);
+            const stat = document.getElementById(`${cont.parentID}Stat`);
             const IDs = Object.keys(cont.readOnly);
             const valRO = document.getElementById(IDs[0]);
             const reRO = document.getElementById(IDs[1]);
@@ -1574,20 +1591,21 @@
 
             reRO.innerText = `Plug: ${relayNum(re)} set to` +
                 ` ${reAltCond(reCon, reVal)}`;
-            
-            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
-            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-            parent.classList.add(sensUpBg[allData["SHTUp"]]);
 
+            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
+            sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
+            stat.classList.add(sensUpBg[allData["SHTUp"]]);
+            stat.innerText = sensUpTxt[allData["SHTUp"]];
+            
             // Check bounds once processed to ensure correct coloring.
             checkBounds(data, reRO, altRO);
         }
 
         // Changes the temperature the the appropriate value per ESP32 proto.
         let manipTemp = (data) => { // Do not affect standing values.
-            let [val, avg, avgPrev, re, reCon, reVal, altCon, altVal] = data;
-            reVal /= 100; // reduce int to float
-            altVal /= 100; // reduce int to float
+            // To manip, cannot use copies, must change actual index vals.
+            data[5] /= 100; data[7] /= 100; // Reduce to float val.
+
             const prohibIdx = [3, 4, 6]; // Ignore these indicies in loop.
 
             if (!isCelcius) { // If units = F, convert to F.
@@ -1636,6 +1654,7 @@
             const [val, altCon, altVal] = data;
 
             const parent = document.getElementById(cont.parentID);
+            const stat = document.getElementById(`${cont.parentID}Stat`);
             const IDs = Object.keys(cont.readOnly);
             const valRO = document.getElementById(IDs[0]); // main
             const altRO = document.getElementById(IDs[2]); // alert display
@@ -1644,8 +1663,10 @@
             valRO.innerText = `${name.slice(0, 4)} #${name[4]}: ${val}`;
             altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
 
-            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-            parent.classList.add(sensUpBg[allData[`${name}Up`]]);
+            sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
+            stat.classList.add(sensUpBg[allData["SHTUp"]]);
+            stat.innerText = sensUpTxt[allData["SHTUp"]];
+
             checkBounds(data, altRO);
         }
 
@@ -1685,6 +1706,7 @@
             const [val, avg, avgPrev, re, reCon, reVal, dur, dark] = data;
 
             const parent = document.getElementById(cont.parentID);
+            const stat = document.getElementById(`${cont.parentID}Stat`);
             const IDs = Object.keys(cont.readOnly);
             const valRO = document.getElementById(IDs[0]); // main
             const reRO = document.getElementById(IDs[2]); // relay info
@@ -1704,8 +1726,9 @@
             durRO.innerText = `Light duration: ${timeStr(dur)}`;
             darkRO.innerText = `Dark val set to ${dark}`;
 
-            sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-            parent.classList.add(sensUpBg[allData["photoUp"]]);
+            sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
+            stat.classList.add(sensUpBg[allData["SHTUp"]]);
+            stat.innerText = sensUpTxt[allData["SHTUp"]];
             checkBounds(data, reRO, darkRO, durRO);
         }
 
@@ -1720,6 +1743,7 @@
         const specButtonIDs = ["CSpec", "ASpec", "PSpec"];
         const specMap = {'C': "", 'A': "Avg", 'P': "AvgPrev"}; // For JSON key
         const parent = document.getElementById("specCon");
+        const stat = document.getElementById(`specConStat`);
 
         specButtonIDs.forEach(ID => { // Iterate and apply class to selected but
             const e = document.getElementById(ID);
@@ -1773,8 +1797,9 @@
             bar.style.width = `${width}px`;
         });
 
-        sensUpBg.forEach(cls => parent.classList.remove(cls)); // rmv all
-        parent.classList.add(sensUpBg[allData["specUp"]]);
+        sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
+        stat.classList.add(sensUpBg[allData["SHTUp"]]);
+        stat.innerText = sensUpTxt[allData["SHTUp"]];
     }
 
     const handleRelays = () => { // Handles all relay containers and activity.
@@ -2244,7 +2269,7 @@
             "reSet": new rangeBuild(-30, 60, 0.5), // Celcius
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(-30, 60, 0.5) // Celcius
-        }, true
+        }, true, true
     );
 
     const humCon = buildCon("hum", 
@@ -2256,7 +2281,7 @@
             "reSet": new rangeBuild(1, 99, 1), 
             "altCond": new rangeBuild(0, 2, 1),
             "altSet": new rangeBuild(1, 99, 1)
-        }, true
+        }, true, true
     );
 
     const soilBuilder = (num) => {
@@ -2265,7 +2290,7 @@
             {
                 "altCond": new rangeBuild(0, 2, 1),
                 "altSet": new rangeBuild(1, 4094, 1)
-            }, true
+            }, true, true
         );
 
         return soilCon;
@@ -2284,7 +2309,7 @@
             "re": new rangeBuild(0, 4, 1), "reCond": new rangeBuild(0, 2, 1),
             "reSet": new rangeBuild(1, 4094, 1), 
             "darkSet": new rangeBuild(1, 4094, 1), 
-        }, true
+        }, true, true
     );
 
     const specCon = buildCon("spec", null, null, null, null, 
@@ -2294,7 +2319,7 @@
             "astep": new rangeBuild(0, 65534, 1),
             "atime": new rangeBuild(0, 255, 1),
             "again": new rangeBuild(0, 10, 1)
-        }, true
+        }, true, true
     );
 
     const relayBuilder = (num) => { // Do not change naming convention with re.
