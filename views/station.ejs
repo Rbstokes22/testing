@@ -60,6 +60,7 @@
             display: grid;
             grid-template-columns: 1fr; /* default 1 column */
             gap: 10px;
+            justify-content: center;
         }
 
         @media (min-width: 600px) {
@@ -87,7 +88,7 @@
 
         .con {
             display: grid;
-            grid-template-columns: repeat(4, minmax(75px, 1fr));
+            grid-template-columns: repeat(4, minmax(60px, 1fr));
             grid-template-rows: auto;
             gap: 10px;
             align-self: start; /* prevent stretching */
@@ -171,6 +172,9 @@
     <script>
 
     // TO DO:
+
+    // use vw instead of px for graphical measurements. THis is because some of
+    // it is extending beyond the container when iphone is flipped sideways.
 
     // Continue adjusting CSS. Change the color of the bars displaying values
     // for soil to blue, and for photo to yellow. Ensure contrast throughout,
@@ -853,6 +857,7 @@
 
         // Main container and buttons
         const parent = document.getElementById("mainTrends");
+        parent.style.color = "black";
         parent.classList.add("trends");
         parent.classList.add("con");
         const buttons = ["3-hr", "6-hr", "9-hr", "12-hr"];
@@ -1458,7 +1463,8 @@
     // runs if exists. Deletes the request ID upon receiving response. 
     const handleResponse = (response) => {
         response.id = Number(response.id); // Explicity convert to number.
-        const func = requestIDs[response.id][0]; 
+        const func = requestIDs[response.id][0] ? // Set to null if non-exist.
+            requestIDs[response.id][0] : null;
     
         // Check if default response. If so, will send the html element
         // ID and the value to set it to iff successful. This will handle
@@ -1830,6 +1836,8 @@
                 const isSet = (dayVal >> i) & 0b1;
                 if (isSet) dayStr += `${DAYS[i]} | `;
             }
+
+            if (dayVal === 0) dayStr += "None___"; // Trailing ___ will be del.
 
             if (dayStr.length > dayLen) { // Delete trail delim iff concat.
                 dayStr = dayStr.slice(0, dayStr.length - 3); 
