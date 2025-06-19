@@ -32,7 +32,8 @@ let CMDS = [null, // Used to index to a +1
 
 
 let allData = {
-    "firmv": "1.0.0", "id": "1", "newLog": 0, "sysTime": 13683, "hhmmss": "3:48:3",
+    "firmv": "1.0.0", "id": "1", "newLog": 0, "netMode" : 0,
+    "sysTime": 13683, "hhmmss": "3:48:3",
     "day": 1, "timeCalib": 0, 
     "re0": 0, "re0TimerEn": 0, "re0TimerOn": 99999, "re0TimerOff": 99999,
     "re1": 1, "re1TimerEn": 0, "re1TimerOn": 99999, "re1TimerOff": 99999, 
