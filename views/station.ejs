@@ -7,7 +7,7 @@
     <style>
         
         button {
-            border: 2px solid black;
+            border: 2px double silver;
             border-radius: 5px;
             min-height: 3em;
         }
@@ -18,6 +18,7 @@
 
         body {
             color: black;
+            background-color: rgb(184, 197, 255);
             font-weight: 500;
 
             /* prevents mobile button hold from zooming in on text 
@@ -69,23 +70,6 @@
             }
         }
 
-        .item {
-            background-color: rgb(85, 107, 47);
-            color: white;
-            padding: 20px;
-            text-align: left;
-            border: 2px solid rgb(0, 0, 0);
-            border-radius: 5px;
-        }
-
-        .smallItem {
-            padding: 5px;
-            border: 2px solid rgb(255, 255, 255);
-            border-radius: 5px;
-            text-align: left;
-        }
-        .adjBar {white-space: nowrap;}
-
         .con {
             display: grid;
             grid-template-columns: repeat(4, minmax(15%, 1fr));
@@ -94,12 +78,29 @@
             align-self: start; /* prevent stretching */
         }
 
-        .conLab {
+        .subCon {
+            background-color: rgb(85, 107, 47);
+            color: white;
+            padding: 20px;
+            text-align: left;
+            border: 2px solid rgb(0, 0, 0);
+            border-radius: 5px;
+        }
+
+        .conLab { /* Container label */
             color: rgb(255, 230, 0);
             font-weight: 900;
             background-color: rgb(71, 71, 71);
         }
 
+        .subConItem {
+            padding: 5px;
+            border: 2px solid silver;
+            border-radius: 5px;
+            text-align: left;
+        }
+
+        .adjBar {white-space: nowrap;}
         #specDisp {
             display: grid;
             grid-template-columns: 60px auto; /* 2 columns */
@@ -150,19 +151,19 @@
     <p id="title">MysteryGraph Greenhouse Loading</p>
     <div id="otaUpd"></div>
     <div id="container">
-        <div id="mainCon" class="item"></div>
-        <div id="tempCon" class="item"></div>
-        <div id="humCon" class="item"></div>
-        <div id="soil0Con" class="item"></div>
-        <div id="soil1Con" class="item"></div>
-        <div id="soil2Con" class="item"></div>
-        <div id="soil3Con" class="item"></div>
-        <div id="lightCon" class="item"></div>
-        <div id="specCon" class="item"></div>
-        <div id="re0Con" class="item"></div>
-        <div id="re1Con" class="item"></div>
-        <div id="re2Con" class="item"></div>
-        <div id="re3Con" class="item"></div>
+        <div id="mainCon" class="subCon"></div>
+        <div id="tempCon" class="subCon"></div>
+        <div id="humCon" class="subCon"></div>
+        <div id="soil0Con" class="subCon"></div>
+        <div id="soil1Con" class="subCon"></div>
+        <div id="soil2Con" class="subCon"></div>
+        <div id="soil3Con" class="subCon"></div>
+        <div id="lightCon" class="subCon"></div>
+        <div id="specCon" class="subCon"></div>
+        <div id="re0Con" class="subCon"></div>
+        <div id="re1Con" class="subCon"></div>
+        <div id="re2Con" class="subCon"></div>
+        <div id="re3Con" class="subCon"></div>
     </div> <!-- contains all periph containers-->
     <button id="SR" class="logFWbut" onclick="saveReset()">Save & Reset</button>
     <div id="log"></div>
@@ -170,33 +171,6 @@
     <button id="logBut" class="logFWbut" onclick="openLog()">Open Log</button>
 
     <script>
-
-    // TO DO:
-
-    // 99% done. Like the FW checks, block alerts, They can potenntialy stay 
-    // and grey out, or just be removed all together. Also Do the same for anything
-    // the requires this, even the update FW, which should never pop up I suppose.
-    // This should be easy to implement by checking for things in the expand function,
-    // if it includes alert. It can say something like if .label.toLowerCase().
-    // includes("alert") then block.
-
-    // Basic testing went well, build a global that disables certain features
-    // from STA mode from using WAP. Ensure that we are able to work that into
-    // the cpp side to strcat it in. So a portion of the code, the global,
-    // and then the rest. The global will be the cutoff depending on the switch
-    // pos. They will both serve the same code, just one disables the functionality.
-
-    // Complete with code functionality. Everything works and is commented.
-    // Requires testing with ESP. Once test complete, adjust CSS to make better
-    // and strip comments before adding to device. Create a global that can
-    // be added somewhere that will prevent functionality of net based stuff if
-    // in WAP mode. This will block any external checks for FW and alerts. On 
-    // the ESP side we can just have 1 giant html rendered with a break where
-    // the global is added based on the setting. This is for after a successful
-    // install.
-    
-    // Tested on ESP32 with several errors. Made comments on main.cpp, will
-    // troubleshoot before continuing on here.
 
     // ATTENTION: Logic throughout contains certain name specific methods using
     // naming. So if anything is modified, check all dependencies. i.e. relay
@@ -247,6 +221,7 @@
     let specDisplay = 'C'; // 'C'urrent, 'A'verages, 'P'rev Averages.
     const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
     let reDays = [0, 0, 0, 0]; // Relay day tracker for socket send only.
+    const IGNORE = 'P';
 
     // All commands from socketHandler.hpp. These must correspond with the
     // enum. Will be used to return the index num, which will be the cmd.
@@ -361,7 +336,7 @@
     // that is saved in local storage only, and set upon blur.
     let buildConLabel = (parent, name) => {
         const label = document.createElement("input");
-        label.className = "smallItem span4 conLab";
+        label.className = "subConItem span4 conLab";
         const curVal = localStorage.getItem(`${name}Label`);
         label.value = (curVal != null) ? curVal : "CUSTOM LABEL/NOTES HERE";
         label.onblur = () => localStorage.setItem(`${name}Label`, label.value);
@@ -373,7 +348,7 @@
     let buildConStat = (parent) => {
         const statBar = document.createElement("div");
         statBar.id = `${parent.id}Stat`;
-        statBar.className = "smallItem span4";
+        statBar.className = "subConItem span4";
         statBar.style.textAlign = "center";
         statBar.innerText = "Sensor Loading";
         parent.appendChild(statBar);
@@ -387,43 +362,43 @@
         if (name === "spec") { // Spectral display
 
             RO[`${name}Disp`] = new RObuild("div", null, // Primary
-                ["smallItem", "span4"]); // Display for spec chart.
+                ["subConItem", "span4"]); // Display for spec chart.
 
             RO[name] = new RObuild("div", "Spectral Info Display", 
-                ["smallItem", "span4"]); // Primary display for info
+                ["subConItem", "span4"]); // Primary display for info
 
         } else if (name.includes("re")) { // Relay displays
 
-            RO[name] = new RObuild("div", `0`, ["smallItem", "span4"]); 
+            RO[name] = new RObuild("div", `0`, ["subConItem", "span4"]); 
 
             RO[`${name}ConButtons`] = new RObuild("div", "", 
-                ["smallItem", "span4", "con"]); // button display.
+                ["subConItem", "span4", "con"]); // button display.
 
         } else if (name === "main") { // Main display
 
             // main RO is the time and time calibration. Alt is an alternate
             // that displays temp units and version. Avg displays clear average
             // time. Trends houses 3, 6, 9, and 12 hour trends.
-            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]);
-            RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
-            RO[`${name}Avg`] = new RObuild("div", "0", ["smallItem", "span4"]);
+            RO[name] = new RObuild("div", "0", ["subConItem", "span4"]);
+            RO[`${name}Alt`] = new RObuild("div", "0", ["subConItem", "span4"]);
+            RO[`${name}Avg`] = new RObuild("div", "0", ["subConItem", "span4"]);
             RO[`${name}Trends`] = new RObuild("div", null, 
-                ["smallItem", "span4"]); 
+                ["subConItem", "span4"]); 
 
             // Temperature units F or C. Uses hidden since range map is passed.
             INP[`${name}Units`] = new inputBuild(ranges.units, "input", "Units",
-                true, ["smallItem"], null, ['F', 'C'], null, () => {
+                true, ["subConItem"], null, ['F', 'C'], null, () => {
                 const val = makeNum(`${name}UnitsHidden`);
                 isCelcius = val ? true : false;
                 handleMain(); handleTempHum();
             });
 
             INP[`${name}HrSet`] = new inputBuild(ranges.hour, "input",
-                "Avg Clear Hours:", false, ["smallItem"], null, null, null, 
+                "Avg Clear Hours:", false, ["subConItem"], null, null, null, 
                 null);
 
             INP[`${name}MinSet`] = new inputBuild(ranges.min, "input",
-                "Avg Clear Minutes:", true, ["smallItem"], null, null, null, 
+                "Avg Clear Minutes:", true, ["subConItem"], null, null, null, 
                 () => {
                 
                 const cmd = convert("CLEAR_AVG_SET_TIME");
@@ -446,14 +421,14 @@
             });
 
         } else if (name.includes("soil") || name.includes("light")) { // soil/lt
-            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); // main
+            RO[name] = new RObuild("div", "0", ["subConItem", "span4"]); // main
 
             // Used to show visual intensity bar.
             RO[`${name}ConIntensity`] = 
-                new RObuild("div", "", ["smallItem", "span4"]);
+                new RObuild("div", "", ["subConItem", "span4"]);
 
         } else { // All other displays.
-            RO[name] = new RObuild("div", "0", ["smallItem", "span4"]); 
+            RO[name] = new RObuild("div", "0", ["subConItem", "span4"]); 
         }
     }
 
@@ -461,10 +436,10 @@
     // objects. Builds the relay number display, and its inputs for all 
     // all containers that require a relay attachment.
     let buildConRelay = (obj, name, ranges, RO, INP) => {
-        RO[`${name}Re`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        RO[`${name}Re`] = new RObuild("div", "0", ["subConItem", "span4"]);
 
         INP[`${name}ReAtt`] = new inputBuild(ranges.re, "input", "Plug #", 
-            true, ["smallItem"], `${name}Re`, ['0', '1', '2', '3', "NONE"], 
+            true, ["subConItem"], `${name}Re`, ['0', '1', '2', '3', "NONE"], 
             {255: ["NONE", 4]}, () => {
                 
             const cmd = convert(obj.cmd); 
@@ -497,11 +472,11 @@
     // the require relays with less than greater than (LTGT) settings.
     let buildConRelaySet = (obj, name, ranges, RO, INP) => {
         INP[`${name}ReLTGT`] = new inputBuild(ranges.reCond, "input", 
-            "Plug condition", false, ["smallItem"], `${name}ReCond`, 
+            "Plug condition", false, ["subConItem"], `${name}ReCond`, 
             ["LT <", "GT >", "NONE"], null, null);
 
         INP[`${name}ReSetVal`] = new inputBuild(ranges.reSet, "input", 
-            `Plug ${name} value`, true, ["smallItem"], `${name}ReVal`, null, 
+            `Plug ${name} value`, true, ["subConItem"], `${name}ReVal`, null, 
             null, () => {
             
             const cond = makeNum(`${name}ReLTGTHidden`); // relay condition.
@@ -558,14 +533,14 @@
     // the require alerts with less than greater than (LTGT) settings.
     let buildConAlertSet = (obj, name, ranges, RO, INP) => {
 
-        RO[`${name}Alt`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        RO[`${name}Alt`] = new RObuild("div", "0", ["subConItem", "span4"]);
 
         INP[`${name}AltLTGT`] = new inputBuild(ranges.altCond, "input", 
-            "Alert condition", false, ["smallItem"], `${name}AltCond`, 
+            "Alert condition", false, ["subConItem"], `${name}AltCond`, 
             ["LT <", "GT >", "NONE"], null, null);
 
         INP[`${name}AltSetVal`] = new inputBuild(ranges.altSet, "input", 
-            `Alert ${name} value`, true, ["smallItem"], `${name}AltVal`, 
+            `Alert ${name} value`, true, ["subConItem"], `${name}AltVal`, 
             null, null, () => {
 
             const cond = makeNum(`${name}AltLTGTHidden`); // alert cond.
@@ -620,11 +595,11 @@
     // container so that it can adjust the setting at which positive light 
     // duration begins. If set to 500, duration starts until it falls below 500.
     let buildConDarkSet = (obj, name, ranges, RO, INP) => {
-        RO[`${name}Dur`] = new RObuild("div", "0", ["smallItem", "span4"]);
-        RO[`${name}Dark`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        RO[`${name}Dur`] = new RObuild("div", "0", ["subConItem", "span4"]);
+        RO[`${name}Dark`] = new RObuild("div", "0", ["subConItem", "span4"]);
 
         INP[`${name}DarkSet`] = new inputBuild(ranges.darkSet, "input",
-            "Dark value", true, ["smallItem"], "darkVal", null, null,
+            "Dark value", true, ["subConItem"], "darkVal", null, null,
             () => {
 
             const cmd = convert(obj.cmd); // returns number value.
@@ -644,12 +619,12 @@
     // ASTEP inputs, using the container display for feedback.
     let buildConIntegrationSet = (obj, name, ranges, RO, INP) => {
         INP[`${name}Astep`] = new inputBuild(ranges.astep, "input",
-            "Integration (step)", false, ["smallItem"], "astep", null,
+            "Integration (step)", false, ["subConItem"], "astep", null,
             null, null
         );
 
         INP[`${name}Atime`] = new inputBuild(ranges.atime, "input",
-            "Integration (time)", true, ["smallItem"], "atime", null,
+            "Integration (time)", true, ["subConItem"], "atime", null,
             null, () => {
 
             const ASTEP = makeNum(`${name}Astep`);
@@ -678,7 +653,7 @@
     // with no display feature.
     let buildConGainSet = (obj, name, ranges, RO, INP) => {
         INP[`${name}Again`] = new inputBuild(ranges.again, "input",
-            "Spectral Gain", true, ["smallItem"], "again", 
+            "Spectral Gain", true, ["subConItem"], "again", 
             ["0.5x", "1x", "2x", "4x", "8x", "16x", "32x", "64x", "128x",
                 "256x", "512x"], null, () => {
 
@@ -697,23 +672,23 @@
     // objects. Builds the relay timer container with a status display, and 4 
     // inputs for on HH MM and off HH MM. 
     let buildConRelayTimerSet = (obj, name, ranges, RO, INP) => {
-        RO[`${name}Stat`] = new RObuild("div", "0", ["smallItem", "span4"]);
-        RO[`${name}Days`] = new RObuild("div", "0", ["smallItem", "span4"]);
+        RO[`${name}Stat`] = new RObuild("div", "0", ["subConItem", "span4"]);
+        RO[`${name}Days`] = new RObuild("div", "0", ["subConItem", "span4"]);
 
         INP[`${name}HrSet`] = new inputBuild(ranges.reHour, "input",
-            "On Time (HH MM):", false, ["smallItem"], null, null, null, 
+            "On Time (HH MM):", false, ["subConItem"], null, null, null, 
             null);
 
         INP[`${name}MinSet`] = new inputBuild(ranges.reMin, "input",
-            null, false, ["smallItem"], null, null, null, 
+            null, false, ["subConItem"], null, null, null, 
             null);
 
         INP[`${name}HrOff`] = new inputBuild(ranges.reHour, "input",
-            "Off Time (HH MM):", false, ["smallItem"], null, null, null, 
+            "Off Time (HH MM):", false, ["subConItem"], null, null, null, 
             null);
 
         INP[`${name}MinOff`] = new inputBuild(ranges.reMin, "input",
-            null, true, ["smallItem"], null, null, null, 
+            null, true, ["subConItem"], null, null, null, 
             () => {
 
             const cmd = convert(obj.cmd);
@@ -1001,18 +976,24 @@
             const adj = document.createElement("div");
             adj.innerText = "Click Input Box To Adjust";
             adj.id = `${ID}Adj`;
-            adj.className = "span4 smallItem con adjBar";
+            adj.className = "span4 subConItem con adjBar";
             append(adj);
 
             button.innerText = "Contract"; // acts as a toggle and display.
             button.interval = setInterval(() => { // Allows blinking
                 button.classList.toggle("blinkerMild");
-            }, 500);
+            }, 500); 
+            
+            blockAP(); // Removes STA req elements when not STA mode.
 
         } else if (button.innerText === "Contract") { 
 
             // Iterates the containers expansion IDs, and removes each one.
-            Expansions[ID].forEach(id => document.getElementById(id).remove());
+            Expansions[ID].forEach(id => {
+                if (id === IGNORE) return; // Prevents removing non-exist ele.
+                document.getElementById(id).remove(); // Remove elements.
+            });
+
             button.innerText = "Expand";
             clearInterval(button.interval);
             button.classList.remove("blinkerMild");
@@ -1484,9 +1465,10 @@
     let getAll = (data) => { 
         allData = data; // Allows use between poll interval waits by copying.
         MODE = data.netMode; // Update the mode to handle particular functions.
-        document.getElementById("title").innerText = TITLE[MODE <= 1 ? 0 : 1];
+        document.getElementById("title").innerText = TITLE[MODE === 2 ? 1 : 0];
         
         calibrateTime(data.sysTime); // Ensures sys clock is calib to client
+        blockAP(); // Remove any elements that must be in station mode.
 
         // Run all container/peripheral handlers to update if req.
         handleMain(); handleTempHum(); handleSoil(); handlePhoto();
@@ -1602,7 +1584,10 @@
             reRO.innerText = `Plug: ${relayNum(re)} set to` +
                 ` ${reAltCond(reCon, reVal)}`;
 
-            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
+            altRO.innerText = MODE === 2 ? 
+                `Alert set to ${reAltCond(altCon, altVal)}` : 
+                "Alert Disabled in AP Mode";
+
             sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
             stat.classList.add(sensUpBg[allData["SHTUp"]]);
             stat.innerText = sensUpTxt[allData["SHTUp"]];
@@ -1671,7 +1656,10 @@
 
             intensityBar(IDs[1], val, 4095, "blue", "black");
             valRO.innerText = `${name.slice(0, 4)} #${name[4]}: ${val}`;
-            altRO.innerText = `Alert set to ${reAltCond(altCon, altVal)}`;
+
+            altRO.innerText = MODE === 2 ? 
+                `Alert set to ${reAltCond(altCon, altVal)}` : 
+                "Alert Disabled in AP Mode";
 
             sensUpBg.forEach(cls => stat.classList.remove(cls)); // rmv all
             stat.classList.add(sensUpBg[allData["SHTUp"]]);
@@ -1930,6 +1918,22 @@
 
     // END SOCKET INCOMING RESPONSE FUNCTIONS. =================================
     // START GENERAL FUNCTIONS. ================================================
+
+    // Blocks the Access point features if in AP mode. Used dynamically, if an
+    // expansion has STA mode only features, and is switched to AP, they will 
+    // erase.
+    let blockAP = () => {
+        if (MODE === 2) return; // Only runs if not in station mode.
+        Object.keys(Expansions).forEach(key => {
+
+            Expansions[key].forEach((ele, idx) => {
+                if (ele.includes("Alt")) {
+                    document.getElementById(ele).remove(); // rmv element
+                    Expansions[key][idx] = IGNORE; // Signal to ignore.
+                }
+            });
+        });
+    }
 
     // Gets the log, separates it into a non-delimited array, to be used
     // for diplay at the page bottom, which is opened by openLog.
