@@ -52,30 +52,26 @@
         #FWbut {background-color: red;} 
 
         /* 
-        Creates as many col that will fit into container, if there is space
-        will fill row with as many col as possible. Each col will have a min
-        wid of 200px and a max of 1 fraction of available space, allowing
-        col to grow to fill available space  
+        Columns are dictated by pixel width, display 1 to 3, 3 on the widest.
         */
         #container { 
             display: grid;
-            grid-template-columns: 1fr; /* default 1 column */
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
             gap: 10px;
             justify-content: center;
         }
 
-        @media (min-width: 600px) {
-            #container { /* 2 cols on wider screen */
-                grid-template-columns: repeat(2, 1fr);
+        @media (min-width: 1350px) {
+            #container { /* wider cols on wider screen 3x min width 450 */
+                grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
             }
         }
 
         .con {
             display: grid;
             grid-template-columns: repeat(4, minmax(15%, 1fr));
-            grid-template-rows: auto;
+            grid-auto-rows: min-content; /* prevent item stretching */
             gap: 10px;
-            align-self: start; /* prevent stretching */
         }
 
         .subCon {
@@ -103,7 +99,7 @@
         .adjBar {white-space: nowrap;}
         #specDisp {
             display: grid;
-            grid-template-columns: 60px auto; /* 2 columns */
+            grid-template-columns: max-content auto; /* 2 columns */
             grid-template-rows: auto;
             gap: 5px;
             align-self: start;
@@ -188,7 +184,7 @@
     const OTAURL = `${URLprotocol}://${URLbody}/OTACheck`; 
     const logURL = `${URLprotocol}://${URLbody}/getLog`;
     // const webSktURL = `ws://${URLbody}/ws`;
-    const webSktURL = "ws://greenhouse.local/ws"; // Testing only on actual device without upload.
+    const webSktURL = `ws://greenhouse.local/ws`;
     const TITLE = ["MysteryGraph Greenhouse AP", "MysteryGraph Greenhouse STA"];
 
     // Key names are colors that correspond with the JSON socket data. arr[0]
@@ -2103,7 +2099,7 @@
         }
 
         // Recheck for data
-        if (MKR.length > 0) { // populated, iterate and append.
+        if (MKR && MKR.length > 0) { // populated, iterate and append.
             MKR.forEach(pos => {
                 const height = bar.offsetHeight - (brdr * 2); // bar height
                 const width = bar.offsetWidth - (brdr * 2); // bar width
@@ -2171,15 +2167,13 @@
         fetch(OTAURL)
         .then(res => res.json())
         .then(res => {
-            const {version} = res;
+            const {version} = res; // all valid responses will inc JSON version.
             const OTAdisp = document.getElementById("otaUpd");
             // All array items are what is expected from esp32 server.
             const noActionResp = ["Invalid JSON", "match", "wap", 
                 "Connection open fail", "Connection init fail"];
                 
-            // If -1, means that there is an actual value, so the update
-            // should be available in button form.
-            if (noActionResp.indexOf(version) == -1) {
+            if (version && !noActionResp.includes(version)) {
                 const html = `<button id="FWbut" class="logFWbut" 
                     onclick="DLfirmware('${res.signatureURL}', 
                     '${res.firmwareURL}')"> Update to Version ${version}
