@@ -15,7 +15,7 @@ app.use(express.static(__dirname));
 
 const PORT = 8080;
 // const URL = "https://major-absolutely-bluejay.ngrok-free.app";
-const URL = `http://shadyside.local:${PORT}`;
+const URL = `http://mysterygraph.local:${PORT}`;
 const FW_VERS = "1.0.1";
 
 let clients = {};
