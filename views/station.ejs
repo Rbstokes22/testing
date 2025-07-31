@@ -1841,7 +1841,7 @@
             // the others.
             if (color === maxClr || color === "clear") { // d
                 document.getElementById(color).innerText = 
-                    `${(counts[color] / 655.35).toFixed(2)}% of Max`;
+                    `${(counts[color] / 655.35).toFixed(2)}%`;
             } else { // Remove text from rest.
                 document.getElementById(color).innerText = "";
             }
@@ -2196,9 +2196,18 @@
         mainLab.style.textAlign = "center";
         parent.appendChild(mainLab);
 
-        // !!! ATTENTION> Soil trends have been built in, Include and ensure
-        // all values are good using ADC, as well as units such as C/F or %.
+        // ATTENTION !!!
+        // Rules for data manipulation to includes units or percentages. Sent
+        // by JSON from esp. If keys change, this must be updated as well.
+        // Used for display purposes only in iteration below.
+        const tempHumRULE = ["temp", "hum"]; // C/F, %
 
+        // 15-bit value.
+        const ADCRULE = ["photo", "soil_0", "soil_1", "soil_2", "soil_3"]; 
+        const specRULE = ["blue", "clear", "cyan", "green", "indigo", "nir", 
+            "orange", "red", "violet", "yellow"]; // 16-bit value
+
+        // Iter JSON to display readings of sensor trends.
         Object.keys(data).forEach(key => {
             if (key === "id") return; // Skip AKA continue. Omit this kv pair.
             const lab = document.createElement("div");
@@ -2212,7 +2221,22 @@
 
             let str = "";
             data[key].forEach((val, idx)=> { // Iterate and concat values.
-                str += `[${val}] , `;
+
+                // Check rule JSON by key to convert and/or use % and units.
+                if (tempHumRULE.includes(key)) {
+                    if (key === "temp" && isCelcius) str += `[${val}C] , `;
+                    else if (key === "temp" && !isCelcius) str += 
+                        `[${((val * 1.8) + 32).toFixed(2)}F] , `;
+                    else if (key === "hum") str += `[${val}%] , `;
+
+                } else if (ADCRULE.includes(key)) {
+                    str += `[${ADCConv(true, val)}%] , `;
+
+                } else if (specRULE.includes(key)) {
+                    const newV = ((val * 100) / SPEC_MAX).toFixed(2);
+                    str += `[${newV}%] , `;
+                    console.log(`SPEC ${key}`);
+                }
             });
 
             str = str.slice(0, str.length - 3); // Removes comma and whitespace.
